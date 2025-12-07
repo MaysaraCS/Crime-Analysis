@@ -12,10 +12,13 @@ if (!PUBLISHABLE_KEY) {
 }
 
 createRoot(document.getElementById("root")).render(
-  <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+  <ClerkProvider
+    publishableKey={PUBLISHABLE_KEY}
+    afterSignInUrl="/crime"
+    afterSignUpUrl="/select-role"
+  >
     <BrowserRouter>
       <App />
     </BrowserRouter>
-
   </ClerkProvider>
 );

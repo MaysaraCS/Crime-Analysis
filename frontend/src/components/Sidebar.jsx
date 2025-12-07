@@ -1,31 +1,47 @@
 import React, { useState } from "react";
-import { Protect, useClerk, useUser } from "@clerk/clerk-react";
+import { useClerk, useUser } from "@clerk/clerk-react";
 import {
     House,
-    Hash,
-    Image,
-    SquarePen,
-    Eraser,
-    Scissors,
-    FileText,
-    User,
+    UserStar,
+    BookText,
+    PenLine,
+    FileChartColumnIncreasing,
     LogOut,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import LogoutModal from "./LogoutModal";
 
 const navItems = [
-    { to: "/ai", label: "Dashboard", Icon: House },
-    { to: "/ai/write-article", label: "Write Article ", Icon: SquarePen },
-    { to: "/ai/blog-titles", label: "Blog Titles", Icon: Hash },
-    { to: "/ai/generate-images", label: "Generate Images", Icon: Image },
-    { to: "/ai/remove-background", label: "Remove Background", Icon: Eraser },
-    { to: "/ai/remove-object", label: "Remove Object", Icon: Scissors },
-    { to: "/ai/resume-review", label: "Review Resume", Icon: FileText },
-    { to: "/ai/community", label: "Community", Icon: User },
+    // Visible for all roles
+    { to: "/crime", label: "Dashboard", Icon: House, roles: "any" },
+    // Admin only
+    { to: "/crime/admin-page", label: "Admin Page", Icon: UserStar, roles: ["administrator"] },
+    // Insert: General Statistic only
+    { to: "/crime/insert-info", label: "Insert Information", Icon: BookText, roles: ["general_statistic"] },
+    // Update: General Statistic, HR, Civil Status, Ministry of Justice
+    {
+        to: "/crime/update-info",
+        label: "Update Information",
+        Icon: PenLine,
+        roles: ["general_statistic", "hr", "civil_status", "ministry_of_justice"],
+    },
+    // Report: Admin + Ministry of Interior
+    {
+        to: "/crime/report-page",
+        label: "Report Page",
+        Icon: FileChartColumnIncreasing,
+        roles: ["administrator", "ministry_of_interior"],
+    },
 ];
 const Sidebar = ({ sidebar, setSidebar }) => {
     const { user } = useUser();
+    const role = user?.unsafeMetadata?.role;
+
+    const visibleNavItems = navItems.filter((item) => {
+        if (item.roles === "any") return true;
+        if (!role) return false;
+        return item.roles.includes(role);
+    });
     const { signOut, openUserProfile } = useClerk();
 
     const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -60,11 +76,11 @@ const Sidebar = ({ sidebar, setSidebar }) => {
                     />
                     <h1 className="mt-1 text-center">{user?.fullName || "Guest"}</h1>
                     <div className="px-6 mt-5 text-sm text-gray-600 font-medium " >
-                        {navItems.map(({ to, label, Icon }) => (
+                        {visibleNavItems.map(({ to, label, Icon }) => (
                             <NavLink
                                 key={to}
                                 to={to}
-                                end={to === "/ai"}
+                                end={to === "/crime"}
                                 onClick={() => setSidebar(false)}
                                 className={({ isActive }) =>
                                     `px-3.5 py-2.5 flex items-center gap-3 rounded 
@@ -89,9 +105,6 @@ const Sidebar = ({ sidebar, setSidebar }) => {
                         <img src={user.imageUrl} className="w-8 rounded-full" alt="" />
                         <div>
                             <h1 className="text-sm font-medium">{user.fullName}</h1>
-                            <p className="text-xs text-gray-500"></p>
-                            <Protect plan="premium" fallback="Free" > Premium</Protect>
-                            Plan
                         </div>
                     </div>
                     <LogOut onClick={handleLogoutClick} className="w-5 h-5 text-gray-400 hover:text-gray-700 transition cursor-pointer flex-shrink-0" />
@@ -107,4 +120,5 @@ const Sidebar = ({ sidebar, setSidebar }) => {
     );
 };
 
+// in this please delete the divs that are related to premium plans because it is from a different project , only keep logout and picture
 export default Sidebar;

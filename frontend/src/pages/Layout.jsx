@@ -1,5 +1,5 @@
-import React, { use, useState } from "react";
-import { Outlet } from "react-router-dom";
+import React, { useState } from "react";
+import { Outlet, Navigate } from "react-router-dom";
 import { assets } from "../assets/assets";
 import { useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
@@ -9,11 +9,31 @@ import { SignIn, useUser } from "@clerk/clerk-react";
 const Layout = () => {
     const navigate = useNavigate();
     const [sidebar, setSidebar] = useState(false);
-    const { user } = useUser();
-    return user ? (
+    const { user, isLoaded } = useUser();
+
+    if (!isLoaded) {
+        return null;
+    }
+
+    // If no user, show the sign-in form
+    if (!user) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <SignIn afterSignInUrl="/crime" afterSignUpUrl="/crime" />
+            </div>
+        );
+    }
+
+    // If user is signed in but has no role yet, force them to select a role first
+    const role = user.unsafeMetadata?.role;
+    if (!role) {
+        return <Navigate to="/select-role" replace />;
+    }
+
+    return (
         <div className="flex flex-col item-start justify-start h-screen">
             <nav className="w-full px-8 min-h-14 flex items-center justify-between border-b border-gray-200">
-                <img className="cursor-pointer w-32 sm:w-44 " src={assets.logo} alt="" onClick={() => navigate("/")} />
+                <img className="w-32 sm:w-15 mt-3 mb-3 cursor-pointer" src={assets.logo} alt="" onClick={() => navigate("/")} />
                 {sidebar ? (
                     <X
                         onClick={() => setSidebar(false)}
@@ -35,11 +55,7 @@ const Layout = () => {
                 </div>
             </div>
         </div>
-    ) : (
-        <div className="flex items-center justify-center h-screen">
-            <SignIn />
-        </div>
-    )
+    );
 };
 
 export default Layout;
