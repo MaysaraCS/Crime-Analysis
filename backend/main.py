@@ -1,29 +1,39 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from database import SessionLocal
+from database import get_db
 from models import User
+from auth import get_current_user
 
 app = FastAPI(
     title="Crime Analysis API",
     version="0.1.0",
 )
 
-
-# Dependency to get a DB session per request
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# CORS for frontend dev (Vite on localhost:5173)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
 async def health_check():
     """Used by you or your hosting provider to check that the API is alive."""
     return {"status": "ok"}
+
+
+@app.get("/debug/auth")
+async def debug_auth(request: Request):
+    """Temporary endpoint to inspect the Authorization header from the frontend."""
+    return {"authorization": request.headers.get("authorization")}
 
 
 @app.get("/api/hello")
@@ -82,3 +92,17 @@ async def list_users(db: Session = Depends(get_db)):
         {"id": u.id, "clerk_id": u.clerk_id, "email": u.email, "role": u.role}
         for u in users
     ]
+
+
+@app.get("/api/me")
+async def read_me(current_user: User = Depends(get_current_user)):
+    """Return the authenticated user's info from the database.
+
+    This is what the frontend will call to populate the role-aware profile page.
+    """
+    return {
+        "id": current_user.id,
+        "clerk_id": current_user.clerk_id,
+        "email": current_user.email,
+        "role": current_user.role,
+    }

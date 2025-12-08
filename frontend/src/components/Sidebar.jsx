@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useClerk, useUser } from "@clerk/clerk-react";
 import {
     House,
+    User,
     UserStar,
     BookText,
     PenLine,
@@ -31,6 +32,13 @@ const navItems = [
         label: "Report Page",
         Icon: FileChartColumnIncreasing,
         roles: ["administrator", "ministry_of_interior"],
+    },
+    // Profile: visible for all roles
+    {
+        to: "/crime/profile",
+        label: "Profile",
+        Icon: User,
+        roles: "any",
     },
 ];
 const Sidebar = ({ sidebar, setSidebar }) => {

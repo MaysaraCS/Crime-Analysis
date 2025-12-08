@@ -9,6 +9,7 @@ import Layout from "./pages/Layout";
 import ReportPage from "./pages/ReportPage";
 import UpdatePage from "./pages/UpdatePage";
 import SelectRolePage from "./pages/SelectRolePage";
+import Profile from "./pages/Profile";
 
 function App() {
   //const [count, setCount] = useState(0);
@@ -25,6 +26,7 @@ function App() {
           <Route path="insert-info" element={<InsertPage />} />
           <Route path="update-info" element={<UpdatePage />} />
           <Route path="report-page" element={<ReportPage />} />
+          <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>
     </div>
