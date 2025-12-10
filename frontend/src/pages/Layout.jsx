@@ -1,15 +1,39 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Outlet, Navigate } from "react-router-dom";
 import { assets } from "../assets/assets";
 import { useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import Sidebar from "../components/Sidebar";
-import { SignIn, useUser } from "@clerk/clerk-react";
+import { SignIn, useUser, useAuth } from "@clerk/clerk-react";
 
 const Layout = () => {
     const navigate = useNavigate();
     const [sidebar, setSidebar] = useState(false);
     const { user, isLoaded } = useUser();
+    const { getToken } = useAuth();
+
+    // Ensure the Clerk user is synced to the backend / Neon DB
+    useEffect(() => {
+        const syncUser = async () => {
+            try {
+                // Only sync when we have a signed-in user with a role selected
+                if (!user || !user.unsafeMetadata?.role) return;
+
+                const token = await getToken({ template: "backend" });
+                if (!token) return;
+
+                await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/me`, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+            } catch (err) {
+                console.error("Failed to sync user with backend", err);
+            }
+        };
+
+        syncUser();
+    }, [getToken, user]);
 
     if (!isLoaded) {
         return null;
