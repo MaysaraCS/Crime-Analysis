@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
+from io import BytesIO
+from reportlab.pdfgen import canvas
 
 from database import get_db
 from models import User, Neighbourhood, CrimeCategory, CrimeWeight, CrimeFormData
@@ -68,13 +72,99 @@ async def list_neighbourhoods(db: Session = Depends(get_db)):
     ]
 
 
-@app.get("/api/reports/summary")
-async def reports_summary():
-    """Placeholder data for the Report page (Admin + Ministry of Interior)."""
-    return {
-        "by_neighbourhood": [],
-        "by_category": [],
-    }
+@app.get("/api/reports/crime")
+async def crime_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Crime report data per neighbourhood (for charts and tables)."""
+    rows = db.execute(text("""
+        SELECT
+          n.name AS neighbourhood_name,
+          n.population,
+          n.university_education_percent,
+          n.unmarried_over_30_percent,
+          n.income_level,
+          n.unemployment_percent,
+          mc.main_category AS main_crime_category
+        FROM neighbourhood n
+        LEFT JOIN LATERAL (
+          SELECT c.main_category, COUNT(*) AS cnt
+          FROM crime_form_data c
+          WHERE c.neighbourhood_name = n.name
+          GROUP BY c.main_category
+          ORDER BY cnt DESC, c.main_category
+          LIMIT 1
+        ) mc ON TRUE
+    """)).mappings().all()
+    return list(rows)
+
+
+@app.get("/api/reports/general")
+async def general_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """General analysis report data per neighbourhood."""
+    rows = db.execute(text("""
+        SELECT
+          n.name AS neighbourhood_name,
+          n.population,
+          n.income_level,
+          n.unemployment_percent,
+          mc.main_category AS main_crime_category,
+          cw.avg_weight AS avg_crime_weight
+        FROM neighbourhood n
+        LEFT JOIN LATERAL (
+          SELECT c.main_category, COUNT(*) AS cnt
+          FROM crime_form_data c
+          WHERE c.neighbourhood_name = n.name
+          GROUP BY c.main_category
+          ORDER BY cnt DESC, c.main_category
+          LIMIT 1
+        ) mc ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT AVG(c.crime_weight) AS avg_weight
+          FROM crime_form_data c
+          WHERE c.neighbourhood_name = n.name
+        ) cw ON TRUE
+    """)).mappings().all()
+    return list(rows)
+
+
+@app.get("/api/reports/export")
+async def export_report(type: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Export a simple PDF report for crime or general analysis."""
+    if type not in {"crime", "general"}:
+        raise HTTPException(status_code=400, detail="Invalid report type")
+
+    if current_user.role not in {"administrator", "ministry_of_interior"}:
+        raise HTTPException(status_code=403, detail="Not authorized to export reports")
+
+    if type == "crime":
+        rows = await crime_report(db, current_user)  # reuse logic
+        title = "Crime Report"
+    else:
+        rows = await general_report(db, current_user)
+        title = "General Analysis Report"
+
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer)
+    y = 800
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(50, y, title)
+    y -= 30
+    p.setFont("Helvetica", 9)
+
+    for row in rows:
+        line = ", ".join(f"{k}: {v}" for k, v in row.items())
+        p.drawString(50, y, line[:200])  # truncate long lines
+        y -= 14
+        if y < 50:
+            p.showPage()
+            y = 800
+            p.setFont("Helvetica", 9)
+
+    p.save()
+    buffer.seek(0)
+
+    return StreamingResponse(buffer, media_type="application/pdf", headers={
+        "Content-Disposition": f"inline; filename={type}_report.pdf",
+    })
 
 
 @app.get("/api/users")
@@ -84,6 +174,29 @@ async def list_users(db: Session = Depends(get_db)):
     return [
         {"id": u.id, "email": u.email, "role": u.role}
         for u in users
+    ]
+
+
+@app.get("/api/crime-forms")
+async def list_crime_forms(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """List crime form records.
+
+    All authenticated roles can view; Update and Delete are enforced on specific endpoints.
+    """
+    rows = db.query(CrimeFormData).order_by(CrimeFormData.id.desc()).all()
+    return [
+        {
+            "id": r.id,
+            "main_category": r.main_category,
+            "crime_weight": r.crime_weight,
+            "subcategories": r.subcategories,
+            "neighbourhood_name": r.neighbourhood_name,
+            "date": r.date.isoformat(),
+            "offender_income_level": r.offender_income_level,
+            "climate": r.climate,
+            "time_of_year": r.time_of_year,
+        }
+        for r in rows
     ]
 
 
@@ -154,6 +267,73 @@ async def create_crime_form(
     db.refresh(record)
 
     return {"id": record.id, "message": "Data saved successfully"}
+
+
+class CrimeFormUpdate(BaseModel):
+    main_category: str
+    subcategories: list[str]
+    neighbourhood_name: str
+    date: str  # ISO date string (YYYY-MM-DD)
+    offender_income_level: str
+    climate: str
+    time_of_year: str
+
+
+@app.put("/api/crime-form/{crime_id}")
+async def update_crime_form(
+    crime_id: int,
+    payload: CrimeFormUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    allowed_roles = {"general_statistic", "hr", "civil_status", "ministry_of_justice", "administrator"}
+    if current_user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Not authorized to update crime data")
+
+    record = db.query(CrimeFormData).filter_by(id=crime_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    weight_row = db.query(CrimeWeight).filter_by(main_category=payload.main_category).first()
+    if not weight_row:
+        raise HTTPException(status_code=400, detail="Invalid main category: no weight defined")
+
+    try:
+        crime_date = datetime.fromisoformat(payload.date).date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; expected YYYY-MM-DD")
+
+    record.main_category = payload.main_category
+    record.crime_weight = weight_row.weight
+    record.subcategories = ", ".join(payload.subcategories)
+    record.neighbourhood_name = payload.neighbourhood_name
+    record.date = crime_date
+    record.offender_income_level = payload.offender_income_level
+    record.climate = payload.climate
+    record.time_of_year = payload.time_of_year
+
+    db.commit()
+    db.refresh(record)
+
+    return {"id": record.id, "message": "Data updated successfully"}
+
+
+@app.delete("/api/crime-form/{crime_id}", status_code=204)
+async def delete_crime_form(
+    crime_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "administrator":
+        raise HTTPException(status_code=403, detail="Not authorized to delete crime data")
+
+    record = db.query(CrimeFormData).filter_by(id=crime_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    db.delete(record)
+    db.commit()
+    return
 
 
 class LoginRequest(BaseModel):
