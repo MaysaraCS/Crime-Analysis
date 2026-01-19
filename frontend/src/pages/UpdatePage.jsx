@@ -1,10 +1,10 @@
 import React from 'react'
-import { useUser } from '@clerk/clerk-react'
 import { Navigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext.jsx'
 
 const UpdatePage = () => {
-    const { user } = useUser();
-    const role = user?.unsafeMetadata?.role;
+    const { user } = useAuth();
+    const role = user?.role;
 
     const allowedRoles = ['general_statistic', 'hr', 'civil_status', 'ministry_of_justice'];
 
@@ -14,8 +14,7 @@ const UpdatePage = () => {
 
     return (
         <div>
-            <h3>This page is displayed when users general statistic , Human resources , civil status , Ministry of justice
-                login or sigup , these users will have update and view from this page the data will be displayed here and they can update it as well  </h3>
+            <h3>This page is displayed when users general statistic, Human resources, civil status, Ministry of justice login; these users will have update and view from this page.</h3>
         </div>
     )
 }

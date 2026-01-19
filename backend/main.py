@@ -1,10 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
 
 from database import get_db
-from models import User
-from auth import get_current_user
+from models import User, Neighbourhood
+from auth import get_current_user, create_access_token, authenticate_user
 
 app = FastAPI(
     title="Crime Analysis API",
@@ -30,12 +31,6 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.get("/debug/auth")
-async def debug_auth(request: Request):
-    """Temporary endpoint to inspect the Authorization header from the frontend."""
-    return {"authorization": request.headers.get("authorization")}
-
-
 @app.get("/api/hello")
 async def hello():
     """Simple test route to verify that FastAPI is running and reachable."""
@@ -43,13 +38,33 @@ async def hello():
 
 
 @app.get("/api/dashboard-summary")
-async def dashboard_summary():
-    """Placeholder data for the Dashboard page (Sprint 2 charts later)."""
+async def dashboard_summary(db: Session = Depends(get_db)):
+    """Basic summary for the dashboard based on neighbourhood data."""
+    total_neighbourhoods = db.query(Neighbourhood).count()
+    total_population = sum(float(n.population) for n in db.query(Neighbourhood).all())
+
     return {
-        "total_neighbourhoods": 0,
-        "total_crimes": 0,
-        "last_updated": None,
+        "total_neighbourhoods": total_neighbourhoods,
+        "total_population": total_population,
     }
+
+
+@app.get("/api/neighbourhoods")
+async def list_neighbourhoods(db: Session = Depends(get_db)):
+    """Return all neighbourhood rows for use in dashboard charts."""
+    rows = db.query(Neighbourhood).order_by(Neighbourhood.name).all()
+    return [
+        {
+            "id": n.id,
+            "name": n.name,
+            "population": float(n.population) if n.population is not None else None,
+            "income_level": n.income_level,
+            "university_education_percent": float(n.university_education_percent) if n.university_education_percent is not None else None,
+            "unemployment_percent": float(n.unemployment_percent) if n.unemployment_percent is not None else None,
+            "unmarried_over_30_percent": float(n.unmarried_over_30_percent) if n.unmarried_over_30_percent is not None else None,
+        }
+        for n in rows
+    ]
 
 
 @app.get("/api/reports/summary")
@@ -61,48 +76,43 @@ async def reports_summary():
     }
 
 
-@app.post("/api/users/test-create")
-async def create_test_user(db: Session = Depends(get_db)):
-    """Temporary route to verify that Neon + the users table are working.
-
-    Creates a dummy user row; call it once from /docs, then check in Neon.
-    Remove this route later in production.
-    """
-    user = User(
-        clerk_id="test_clerk_id",
-        email="test@example.com",
-        role="administrator",
-    )
-    db.add(user)
-    try:
-        db.commit()
-        db.refresh(user)
-    except Exception:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="Failed to insert test user")
-
-    return {"id": user.id, "email": user.email, "role": user.role}
-
-
 @app.get("/api/users")
 async def list_users(db: Session = Depends(get_db)):
     """List all users in the users table (for debugging only)."""
     users = db.query(User).all()
     return [
-        {"id": u.id, "clerk_id": u.clerk_id, "email": u.email, "role": u.role}
+        {"id": u.id, "email": u.email, "role": u.role}
         for u in users
     ]
 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+@app.post("/auth/login")
+async def login(req: LoginRequest, db: Session = Depends(get_db)):
+    """Basic email/password login for the 6 predefined users."""
+    user = authenticate_user(db, req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # subject of the token is the user id
+    token = create_access_token({"sub": str(user.id)})
+
+    return {
+        "token": token,
+        "user": {"id": user.id, "email": user.email, "role": user.role},
+        "message": "Login successful",
+    }
+
+
 @app.get("/api/me")
 async def read_me(current_user: User = Depends(get_current_user)):
-    """Return the authenticated user's info from the database.
-
-    This is what the frontend will call to populate the role-aware profile page.
-    """
+    """Return the authenticated user's info from the database."""
     return {
         "id": current_user.id,
-        "clerk_id": current_user.clerk_id,
         "email": current_user.email,
         "role": current_user.role,
     }

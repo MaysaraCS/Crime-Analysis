@@ -1,10 +1,10 @@
 import React from 'react'
-import { useUser } from '@clerk/clerk-react'
 import { Navigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext.jsx'
 
 const AdminPage = () => {
-  const { user } = useUser();
-  const role = user?.unsafeMetadata?.role;
+  const { user } = useAuth();
+  const role = user?.role;
 
   if (role !== 'administrator') {
     return <Navigate to="/crime" replace />
@@ -12,7 +12,7 @@ const AdminPage = () => {
 
   return (
     <div>
-      <h3>This page will be displayed only when admin login or signup, admin will have all CRUD funtions</h3>
+      <h3>This page will be displayed only when admin login, admin will have all CRUD functions</h3>
     </div>
   )
 }

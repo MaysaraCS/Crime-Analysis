@@ -8,18 +8,17 @@ import InsertPage from "./pages/InsertPage";
 import Layout from "./pages/Layout";
 import ReportPage from "./pages/ReportPage";
 import UpdatePage from "./pages/UpdatePage";
-import SelectRolePage from "./pages/SelectRolePage";
 import Profile from "./pages/Profile";
+import Login from "./pages/Login";
+import { Toaster } from "react-hot-toast";
 
 function App() {
-  //const [count, setCount] = useState(0);
-
   return (
     <div>
-      {/* <Toaster /> */}
+      <Toaster />
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/select-role" element={<SelectRolePage />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/crime" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="admin-page" element={<AdminPage />} />

@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useClerk, useUser } from "@clerk/clerk-react";
 import {
     House,
     User,
@@ -11,29 +10,24 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import LogoutModal from "./LogoutModal";
+import { useAuth } from "../auth/AuthContext.jsx";
 
 const navItems = [
-    // Visible for all roles
     { to: "/crime", label: "Dashboard", Icon: House, roles: "any" },
-    // Admin only
     { to: "/crime/admin-page", label: "Admin Page", Icon: UserStar, roles: ["administrator"] },
-    // Insert: General Statistic only
     { to: "/crime/insert-info", label: "Insert Information", Icon: BookText, roles: ["general_statistic"] },
-    // Update: General Statistic, HR, Civil Status, Ministry of Justice
     {
         to: "/crime/update-info",
         label: "Update Information",
         Icon: PenLine,
         roles: ["general_statistic", "hr", "civil_status", "ministry_of_justice"],
     },
-    // Report: Admin + Ministry of Interior
     {
         to: "/crime/report-page",
         label: "Report Page",
         Icon: FileChartColumnIncreasing,
         roles: ["administrator", "ministry_of_interior"],
     },
-    // Profile: visible for all roles
     {
         to: "/crime/profile",
         label: "Profile",
@@ -41,16 +35,16 @@ const navItems = [
         roles: "any",
     },
 ];
+
 const Sidebar = ({ sidebar, setSidebar }) => {
-    const { user } = useUser();
-    const role = user?.unsafeMetadata?.role;
+    const { user, logout } = useAuth();
+    const role = user?.role;
 
     const visibleNavItems = navItems.filter((item) => {
         if (item.roles === "any") return true;
         if (!role) return false;
         return item.roles.includes(role);
     });
-    const { signOut, openUserProfile } = useClerk();
 
     const [showLogoutModal, setShowLogoutModal] = useState(false);
 
@@ -60,7 +54,7 @@ const Sidebar = ({ sidebar, setSidebar }) => {
 
     const handleConfirmLogout = () => {
         setShowLogoutModal(false);
-        signOut();
+        logout();
     };
 
     const handleCancelLogout = () => {
@@ -70,20 +64,14 @@ const Sidebar = ({ sidebar, setSidebar }) => {
     return (
         <>
             <div
-                className={`w-60 bg-white border-r border-gray-200 
+                className={`w-90 bg-white border-r border-gray-200 
       flex flex-col justify-between items-center
       max-sm:absolute top-14 bottom-0
       ${sidebar ? "translate-x-0" : "max-sm:-translate-x-full"}
       transition-all duration-300 ease-in-out z-40`}
             >
                 <div className="my-7 w-full ">
-                    <img
-                        src={user?.imageUrl || "/fallback.png"}
-                        alt="User avatar"
-                        className="w-13 rounded-full mx-auto"
-                    />
-                    <h1 className="mt-1 text-center">{user?.fullName || "Guest"}</h1>
-                    <div className="px-6 mt-5 text-sm text-gray-600 font-medium " >
+                    <div className="px-6 mt-5 text-sm text-gray-600 font-medium ">
                         {visibleNavItems.map(({ to, label, Icon }) => (
                             <NavLink
                                 key={to}
@@ -93,9 +81,9 @@ const Sidebar = ({ sidebar, setSidebar }) => {
                                 className={({ isActive }) =>
                                     `px-3.5 py-2.5 flex items-center gap-3 rounded 
         ${isActive
-                                        ? "bg-gradient-to-r from-[#3c81f6] to-[#9234ea] text-white"
-                                        : "hover:bg-gray-100"
-                                    }`
+                                            ? "bg-gradient-to-r from-[#3c81f6] to-[#9234ea] text-white"
+                                            : "hover:bg-gray-100"
+                                        }`
                                 }
                             >
                                 {({ isActive }) => (
@@ -108,11 +96,15 @@ const Sidebar = ({ sidebar, setSidebar }) => {
                         ))}
                     </div>
                 </div>
+
                 <div className="w-full border-t border-gray-200 p-4 px-7 flex items-center justify-between gap-3">
-                    <div onClick={openUserProfile} className="flex gap-2 items-center cursor-pointer">
-                        <img src={user.imageUrl} className="w-8 rounded-full" alt="" />
+                    <div className="flex gap-2 items-center">
+                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-semibold text-gray-700">
+                            {user?.email ? user.email.charAt(0).toUpperCase() : "?"}
+                        </div>
                         <div>
-                            <h1 className="text-sm font-medium">{user.fullName}</h1>
+                            <h1 className="text-sm font-medium">{user?.email || "Unknown"}</h1>
+                            <p className="text-xs text-gray-500 capitalize">{user?.role || "no role"}</p>
                         </div>
                     </div>
                     <LogOut onClick={handleLogoutClick} className="w-5 h-5 text-gray-400 hover:text-gray-700 transition cursor-pointer flex-shrink-0" />
@@ -128,5 +120,4 @@ const Sidebar = ({ sidebar, setSidebar }) => {
     );
 };
 
-// in this please delete the divs that are related to premium plans because it is from a different project , only keep logout and picture
 export default Sidebar;

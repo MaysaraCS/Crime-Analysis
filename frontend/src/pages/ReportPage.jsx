@@ -1,10 +1,10 @@
 import React from 'react'
-import { useUser } from '@clerk/clerk-react'
 import { Navigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext.jsx'
 
 const ReportPage = () => {
-    const { user } = useUser();
-    const role = user?.unsafeMetadata?.role;
+    const { user } = useAuth();
+    const role = user?.role;
 
     const allowedRoles = ['administrator', 'ministry_of_interior'];
 
@@ -14,7 +14,7 @@ const ReportPage = () => {
 
     return (
         <div>
-            <h3>this page will be displayed only when admin or ministry of interior login or signup </h3>
+            <h3>this page will be displayed only when admin or ministry of interior login </h3>
         </div>
     )
 }

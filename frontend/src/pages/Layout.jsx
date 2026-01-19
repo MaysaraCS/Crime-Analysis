@@ -1,57 +1,19 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Outlet, Navigate } from "react-router-dom";
 import { assets } from "../assets/assets";
 import { useNavigate } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import Sidebar from "../components/Sidebar";
-import { SignIn, useUser, useAuth } from "@clerk/clerk-react";
+import { useAuth } from "../auth/AuthContext.jsx";
 
 const Layout = () => {
     const navigate = useNavigate();
     const [sidebar, setSidebar] = useState(false);
-    const { user, isLoaded } = useUser();
-    const { getToken } = useAuth();
+    const { user } = useAuth();
 
-    // Ensure the Clerk user is synced to the backend / Neon DB
-    useEffect(() => {
-        const syncUser = async () => {
-            try {
-                // Only sync when we have a signed-in user with a role selected
-                if (!user || !user.unsafeMetadata?.role) return;
-
-                const token = await getToken({ template: "backend" });
-                if (!token) return;
-
-                await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/me`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                });
-            } catch (err) {
-                console.error("Failed to sync user with backend", err);
-            }
-        };
-
-        syncUser();
-    }, [getToken, user]);
-
-    if (!isLoaded) {
-        return null;
-    }
-
-    // If no user, show the sign-in form
+    // If no logged-in user, redirect to login page
     if (!user) {
-        return (
-            <div className="flex items-center justify-center h-screen">
-                <SignIn afterSignInUrl="/crime" afterSignUpUrl="/crime" />
-            </div>
-        );
-    }
-
-    // If user is signed in but has no role yet, force them to select a role first
-    const role = user.unsafeMetadata?.role;
-    if (!role) {
-        return <Navigate to="/select-role" replace />;
+        return <Navigate to="/login" replace />;
     }
 
     return (

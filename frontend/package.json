@@ -10,11 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@clerk/clerk-react": "^5.57.1",
     "@tailwindcss/vite": "^4.1.17",
     "axios": "^1.13.2",
+    "chart.js": "^4.4.6",
     "lucide-react": "^0.555.0",
     "react": "^19.2.0",
+    "react-chartjs-2": "^5.2.0",
     "react-dom": "^19.2.0",
     "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",

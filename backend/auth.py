@@ -1,66 +1,48 @@
 import os
-from functools import lru_cache
+from datetime import datetime, timedelta
 
-import jwt
-from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
+from jose import JWTError, jwt
 
 from database import get_db
 from models import User
 
 load_dotenv()
 
-CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL")
-if not CLERK_JWKS_URL:
-    raise RuntimeError("CLERK_JWKS_URL is not set in the environment")
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")  # set a strong key in .env
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 # HTTP Bearer auth scheme to read the Authorization header
 http_bearer = HTTPBearer(auto_error=False)
 
 
-@lru_cache
-def get_jwks_client() -> PyJWKClient:
-    """Return a cached PyJWKClient for Clerk's JWKS endpoint."""
-    return PyJWKClient(CLERK_JWKS_URL)
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    """Create a signed JWT for the given payload."""
+    to_encode = data.copy()
+    if expires_delta is None:
+        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 
-def verify_clerk_token(token: str) -> dict:
-    """Verify a Clerk-issued JWT and return its payload.
+def authenticate_user(db: Session, email: str, password: str) -> User | None:
+    """Return the user if email/password match, else None.
 
-    Primary path: verify the signature using Clerk's JWKS (RS256).
-    Fallback (dev only): if that fails, decode without verifying the
-    signature so the app can keep working while keys are misconfigured.
+    For this project we compare plain-text passwords as stored in Neon.
+    In a real app you must hash passwords instead.
     """
-    try:
-        signing_key = get_jwks_client().get_signing_key_from_jwt(token)
-        payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            options={"verify_aud": False},
-        )
-        return payload
-    except Exception:
-        # Fallback: decode without verifying signature (development only).
-        # This makes the app tolerant to JWKS / algorithm misconfig while
-        # still failing if the token is not a valid JWT at all.
-        try:
-            payload = jwt.decode(
-                token,
-                options={
-                    "verify_signature": False,
-                    "verify_aud": False,
-                },
-            )
-            return payload
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication token",
-            ) from exc
+    user = db.query(User).filter_by(email=email).first()
+    if not user:
+        return None
+    if user.password != password:
+        return None
+    return user
 
 
 async def get_current_user(
@@ -70,12 +52,9 @@ async def get_current_user(
     """FastAPI dependency that returns the current DB user.
 
     - Reads Bearer token from the Authorization header.
-    - Verifies it against Clerk's JWKS.
-    - Upserts a row in the local `users` table based on Clerk user id.
+    - Decodes it using a shared SECRET_KEY.
+    - Loads the user from the `users` table.
     """
-    # Debug: show what we received in the auth header
-    print("get_current_user credentials:", credentials)
-
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,46 +62,20 @@ async def get_current_user(
         )
 
     token = credentials.credentials
-    payload = verify_clerk_token(token)
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        ) from exc
 
-    clerk_id = payload.get("sub")
-    if not clerk_id:
+    user_id = payload.get("sub")
+    if user_id is None:
         raise HTTPException(status_code=401, detail="Token missing subject")
 
-    # Try to get email from standard Clerk claims
-    email = payload.get("email")
-    if not email:
-        emails = payload.get("email_addresses") or []
-        if isinstance(emails, list) and emails:
-            email = emails[0].get("email_address")
-
-    # Role is exposed as a simple claim from the JWT template
-    role = payload.get("role")
-
-    # Look up user in local DB
-    user = db.query(User).filter_by(clerk_id=clerk_id).first()
-
+    user = db.query(User).filter_by(id=int(user_id)).first()
     if not user:
-        # Create a new user record
-        user = User(
-            clerk_id=clerk_id,
-            email=email or "",
-            role=role or "unknown",
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    else:
-        # Keep email / role in sync if they change in Clerk
-        updated = False
-        if email and user.email != email:
-            user.email = email
-            updated = True
-        if role and user.role != role:
-            user.role = role
-            updated = True
-        if updated:
-            db.commit()
-            db.refresh(user)
+        raise HTTPException(status_code=401, detail="User not found")
 
     return user
