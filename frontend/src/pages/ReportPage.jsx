@@ -49,8 +49,21 @@ const ReportPage = () => {
     }
   };
 
-  const handleExport = (mode) => {
-    const url = `${import.meta.env.VITE_API_BASE_URL}/api/reports/export?type=${reportType}`;
+  const handleExport = async (mode) => {
+  try {
+    const res = await fetch(
+      `${import.meta.env.VITE_API_BASE_URL}/api/reports/export?type=${reportType}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Failed to export report');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
     if (mode === 'view') {
       window.open(url, '_blank');
     } else {
@@ -61,7 +74,11 @@ const ReportPage = () => {
       a.click();
       document.body.removeChild(a);
     }
-  };
+  } catch (err) {
+    console.error('Export failed', err);
+    toast.error(err.message || 'Failed to export report');
+  }
+};
 
   const labels = useMemo(() => dataRows.map((r) => r.neighbourhood_name), [dataRows]);
 

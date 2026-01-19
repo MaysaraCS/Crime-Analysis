@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import toast from 'react-hot-toast';
+import UpdateFormPage from '../components/UpdateFormPage.jsx';
 
 const AdminPage = () => {
   const { user, token } = useAuth();
@@ -10,23 +11,25 @@ const AdminPage = () => {
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editingRecord, setEditingRecord] = useState(null);
+
+  const loadRows = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/crime-forms`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setRows(data);
+    } catch (err) {
+      console.error('Failed to load crime forms', err);
+      toast.error('Failed to load crime data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/crime-forms`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setRows(data);
-      } catch (err) {
-        console.error('Failed to load crime forms', err);
-        toast.error('Failed to load crime data');
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (token) load();
+    if (token) loadRows();
   }, [token]);
 
   if (role !== 'administrator') {
@@ -52,13 +55,18 @@ const AdminPage = () => {
     }
   };
 
+  const handleUpdated = () => {
+    setLoading(true);
+    loadRows();
+  };
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-semibold">Admin - Crime Records</h2>
         <button
           type="button"
-          onClick={() => navigate('/crime/insert-info')}
+          onClick={() => navigate('../insert-info')}
           className="px-4 py-2 rounded-full bg-primary text-white hover:opacity-90"
         >
           Insert Data
@@ -91,7 +99,7 @@ const AdminPage = () => {
                   <button
                     type="button"
                     className="text-blue-600 underline"
-                    onClick={() => navigate('/crime/update-info')}
+                    onClick={() => setEditingRecord(r)}
                   >
                     Update
                   </button>
@@ -108,6 +116,13 @@ const AdminPage = () => {
           </tbody>
         </table>
       )}
+
+      <UpdateFormPage
+        isOpen={!!editingRecord}
+        record={editingRecord}
+        onClose={() => setEditingRecord(null)}
+        onUpdated={handleUpdated}
+      />
     </div>
   );
 };
