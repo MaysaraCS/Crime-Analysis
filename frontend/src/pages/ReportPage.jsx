@@ -50,35 +50,35 @@ const ReportPage = () => {
   };
 
   const handleExport = async (mode) => {
-  try {
-    const res = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL}/api/reports/export?type=${reportType}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/api/reports/export?type=${reportType}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || 'Failed to export report');
       }
-    );
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.detail || 'Failed to export report');
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
 
-    if (mode === 'view') {
-      window.open(url, '_blank');
-    } else {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${reportType}_report.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if (mode === 'view') {
+        window.open(url, '_blank');
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${reportType}_report.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (err) {
+      console.error('Export failed', err);
+      toast.error(err.message || 'Failed to export report');
     }
-  } catch (err) {
-    console.error('Export failed', err);
-    toast.error(err.message || 'Failed to export report');
-  }
-};
+  };
 
   const labels = useMemo(() => dataRows.map((r) => r.neighbourhood_name), [dataRows]);
 
@@ -200,18 +200,37 @@ const ReportPage = () => {
 
       {dataRows.length > 0 && (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-4 flex flex-col items-center">
               <h3 className="font-medium mb-2">Crime Categories Distribution</h3>
-              <div className="w-full h-64">
-                <Pie data={pieData} />
+              <div className="w-full h-80">
+                <Pie 
+                  data={pieData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'left',
+                        align: 'center',
+                        labels: {
+                          boxWidth: 15,
+                          padding: 10,
+                          font: {
+                            size: 11
+                          }
+                        }
+                      }
+                    }
+                  }}
+                />
               </div>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 col-span-2">
+            <div className="bg-white rounded-lg shadow p-4">
               <h3 className="font-medium mb-2">
                 {reportType === 'crime' ? 'Population per Neighbourhood' : 'Avg Crime Weight per Neighbourhood'}
               </h3>
-              <div className="w-full h-72">
+              <div className="w-full h-80">
                 <Bar data={barData} options={{ responsive: true, maintainAspectRatio: false }} />
               </div>
             </div>

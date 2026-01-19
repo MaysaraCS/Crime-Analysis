@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import toast from 'react-hot-toast';
 import UpdateFormPage from '../components/UpdateFormPage.jsx';
+import AdminInsertPage from '../components/AdminInsertPage.jsx';
 
 const AdminPage = () => {
   const { user, token } = useAuth();
   const role = user?.role;
-  const navigate = useNavigate();
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [showInsertModal, setShowInsertModal] = useState(false);
 
   const loadRows = async () => {
     try {
@@ -60,13 +61,18 @@ const AdminPage = () => {
     loadRows();
   };
 
+  const handleInserted = () => {
+    setLoading(true);
+    loadRows();
+  };
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-semibold">Admin - Crime Records</h2>
         <button
           type="button"
-          onClick={() => navigate('../insert-info')}
+          onClick={() => setShowInsertModal(true)}
           className="px-4 py-2 rounded-full bg-primary text-white hover:opacity-90"
         >
           Insert Data
@@ -122,6 +128,12 @@ const AdminPage = () => {
         record={editingRecord}
         onClose={() => setEditingRecord(null)}
         onUpdated={handleUpdated}
+      />
+
+      <AdminInsertPage
+        isOpen={showInsertModal}
+        onClose={() => setShowInsertModal(false)}
+        onInserted={handleInserted}
       />
     </div>
   );

@@ -6,7 +6,15 @@ from sqlalchemy import text
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from io import BytesIO
-from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
+from reportlab.lib.units import inch
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from collections import Counter
 
 from database import get_db
 from models import User, Neighbourhood, CrimeCategory, CrimeWeight, CrimeFormData
@@ -107,28 +115,110 @@ async def general_report(db: Session = Depends(get_db), current_user: User = Dep
           n.income_level,
           n.unemployment_percent,
           mc.main_category AS main_crime_category,
-          cw.avg_weight AS avg_crime_weight
+          COALESCE(mc.weight, 0) AS avg_crime_weight
         FROM neighbourhood n
         LEFT JOIN LATERAL (
-          SELECT c.main_category, COUNT(*) AS cnt
+          SELECT c.main_category, cw.weight, COUNT(*) AS cnt
           FROM crime_form_data c
+          JOIN crime_weights cw ON cw.main_category = c.main_category
           WHERE c.neighbourhood_name = n.name
-          GROUP BY c.main_category
+          GROUP BY c.main_category, cw.weight
           ORDER BY cnt DESC, c.main_category
           LIMIT 1
         ) mc ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT AVG(c.crime_weight) AS avg_weight
-          FROM crime_form_data c
-          WHERE c.neighbourhood_name = n.name
-        ) cw ON TRUE
     """)).mappings().all()
     return list(rows)
 
 
+def create_pie_chart(data_rows):
+    """Create a pie chart for crime categories distribution."""
+    crime_counts = Counter()
+    for row in data_rows:
+        category = row.get('main_crime_category') or 'None'
+        crime_counts[category] += 1
+    
+    labels = list(crime_counts.keys())
+    sizes = list(crime_counts.values())
+    colors_list = ['#1d4ed8', '#f97316', '#22c55e', '#ef4444', '#0ea5e9', '#a855f7']
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    wedges, texts, autotexts = ax.pie(sizes, labels=None, autopct='%1.1f%%',
+                                        colors=colors_list[:len(labels)], startangle=90)
+    
+    # Create legend on the left side
+    ax.legend(wedges, labels, title="Crime Categories", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1))
+    ax.axis('equal')
+    
+    buf = BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+    buf.seek(0)
+    plt.close()
+    return buf
+
+
+def create_bar_chart(data_rows, report_type):
+    """Create a bar chart for population or avg crime weight."""
+    labels = [row.get('neighbourhood_name', '') for row in data_rows]
+    
+    if report_type == 'crime':
+        values = [float(row.get('population', 0)) for row in data_rows]
+        ylabel = 'Population (thousands)'
+        title = 'Population per Neighbourhood'
+    else:
+        values = [float(row.get('avg_crime_weight', 0)) for row in data_rows]
+        ylabel = 'Avg Crime Weight'
+        title = 'Avg Crime Weight per Neighbourhood'
+    
+    colors_list = ['#4f46e5', '#f59e0b', '#f97373', '#22c55e', '#0ea5e9', '#a855f7']
+    bar_colors = [colors_list[i % len(colors_list)] for i in range(len(labels))]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.bar(labels, values, color=bar_colors)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    
+    buf = BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+    buf.seek(0)
+    plt.close()
+    return buf
+
+
+def create_line_chart(data_rows, report_type):
+    """Create a line chart for unemployment or avg crime weight trend."""
+    labels = [row.get('neighbourhood_name', '') for row in data_rows]
+    
+    if report_type == 'crime':
+        values = [float(row.get('unemployment_percent', 0)) for row in data_rows]
+        ylabel = 'Unemployment %'
+        title = 'Unemployment vs Neighbourhood'
+        color = '#10b981'
+    else:
+        values = [float(row.get('avg_crime_weight', 0)) for row in data_rows]
+        ylabel = 'Avg Crime Weight'
+        title = 'Avg Crime Weight Trend'
+        color = '#ef4444'
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(labels, values, marker='o', color=color, linewidth=2)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    plt.xticks(rotation=45, ha='right')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    buf = BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+    buf.seek(0)
+    plt.close()
+    return buf
+
+
 @app.get("/api/reports/export")
 async def export_report(type: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Export a simple PDF report for crime or general analysis."""
+    """Export a comprehensive PDF report with charts and tables."""
     if type not in {"crime", "general"}:
         raise HTTPException(status_code=400, detail="Invalid report type")
 
@@ -136,30 +226,100 @@ async def export_report(type: str, db: Session = Depends(get_db), current_user: 
         raise HTTPException(status_code=403, detail="Not authorized to export reports")
 
     if type == "crime":
-        rows = await crime_report(db, current_user)  # reuse logic
+        rows = await crime_report(db, current_user)
         title = "Crime Report"
     else:
         rows = await general_report(db, current_user)
         title = "General Analysis Report"
 
     buffer = BytesIO()
-    p = canvas.Canvas(buffer)
-    y = 800
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(50, y, title)
-    y -= 30
-    p.setFont("Helvetica", 9)
-
-    for row in rows:
-        line = ", ".join(f"{k}: {v}" for k, v in row.items())
-        p.drawString(50, y, line[:200])  # truncate long lines
-        y -= 14
-        if y < 50:
-            p.showPage()
-            y = 800
-            p.setFont("Helvetica", 9)
-
-    p.save()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title_para = Paragraph(f"<b>{title}</b>", styles['Title'])
+    story.append(title_para)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Generate charts
+    pie_chart_buf = create_pie_chart(rows)
+    bar_chart_buf = create_bar_chart(rows, type)
+    line_chart_buf = create_line_chart(rows, type)
+    
+    # Add Pie Chart
+    story.append(Paragraph("<b>Crime Categories Distribution</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.1*inch))
+    pie_img = Image(pie_chart_buf, width=5*inch, height=3.5*inch)
+    story.append(pie_img)
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Add Bar Chart
+    story.append(PageBreak())
+    if type == 'crime':
+        story.append(Paragraph("<b>Population per Neighbourhood</b>", styles['Heading2']))
+    else:
+        story.append(Paragraph("<b>Avg Crime Weight per Neighbourhood</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.1*inch))
+    bar_img = Image(bar_chart_buf, width=6*inch, height=3.5*inch)
+    story.append(bar_img)
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Add Line Chart
+    story.append(PageBreak())
+    if type == 'crime':
+        story.append(Paragraph("<b>Unemployment vs Neighbourhood</b>", styles['Heading2']))
+    else:
+        story.append(Paragraph("<b>Avg Crime Weight Trend</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.1*inch))
+    line_img = Image(line_chart_buf, width=6*inch, height=3.5*inch)
+    story.append(line_img)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Add Table
+    story.append(PageBreak())
+    story.append(Paragraph("<b>Report Table</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.1*inch))
+    
+    if type == 'crime':
+        table_data = [['Neighbourhood', 'Population', 'Income', 'Unemp %', 'Crime Cat', 'Univ Edu %', 'Unmarried 30+ %']]
+        for row in rows:
+            table_data.append([
+                str(row.get('neighbourhood_name', '')),
+                f"{float(row.get('population', 0)):.2f}",
+                str(row.get('income_level', '')),
+                f"{float(row.get('unemployment_percent', 0)):.1f}",
+                str(row.get('main_crime_category', 'N/A')),
+                f"{float(row.get('university_education_percent', 0)):.1f}",
+                f"{float(row.get('unmarried_over_30_percent', 0)):.1f}",
+            ])
+    else:
+        table_data = [['Neighbourhood', 'Population', 'Income', 'Unemp %', 'Crime Cat', 'Avg Weight']]
+        for row in rows:
+            table_data.append([
+                str(row.get('neighbourhood_name', '')),
+                f"{float(row.get('population', 0)):.2f}",
+                str(row.get('income_level', '')),
+                f"{float(row.get('unemployment_percent', 0)):.1f}",
+                str(row.get('main_crime_category', 'N/A')),
+                f"{float(row.get('avg_crime_weight', 0)):.2f}",
+            ])
+    
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    story.append(table)
+    
+    doc.build(story)
     buffer.seek(0)
 
     return StreamingResponse(buffer, media_type="application/pdf", headers={
@@ -179,10 +339,7 @@ async def list_users(db: Session = Depends(get_db)):
 
 @app.get("/api/crime-forms")
 async def list_crime_forms(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """List crime form records.
-
-    All authenticated roles can view; Update and Delete are enforced on specific endpoints.
-    """
+    """List crime form records."""
     rows = db.query(CrimeFormData).order_by(CrimeFormData.id.desc()).all()
     return [
         {
@@ -202,10 +359,7 @@ async def list_crime_forms(db: Session = Depends(get_db), current_user: User = D
 
 @app.get("/api/crime/meta")
 async def get_crime_meta(db: Session = Depends(get_db)):
-    """Return main categories, their weights, and subcategories.
-
-    This is used by the Insert page to populate dropdowns and checkboxes.
-    """
+    """Return main categories, their weights, and subcategories."""
     weights = db.query(CrimeWeight).all()
     categories = db.query(CrimeCategory).all()
 
@@ -227,7 +381,7 @@ class CrimeFormCreate(BaseModel):
     main_category: str
     subcategories: list[str]
     neighbourhood_name: str
-    date: str  # ISO date string (YYYY-MM-DD)
+    date: str
     offender_income_level: str
     climate: str
     time_of_year: str
@@ -239,13 +393,13 @@ async def create_crime_form(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Only General Statistic user can insert
-    if current_user.role != "general_statistic":
+    # Allow both general_statistic and administrator to insert
+    if current_user.role not in ["general_statistic", "administrator"]:
         raise HTTPException(status_code=403, detail="Not authorized to insert crime data")
 
     weight_row = db.query(CrimeWeight).filter_by(main_category=payload.main_category).first()
     if not weight_row:
-        raise Exception("Invalid main category: no weight defined")
+        raise HTTPException(status_code=400, detail="Invalid main category: no weight defined")
 
     try:
         crime_date = datetime.fromisoformat(payload.date).date()
@@ -273,7 +427,7 @@ class CrimeFormUpdate(BaseModel):
     main_category: str
     subcategories: list[str]
     neighbourhood_name: str
-    date: str  # ISO date string (YYYY-MM-DD)
+    date: str
     offender_income_level: str
     climate: str
     time_of_year: str
@@ -348,7 +502,6 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # subject of the token is the user id
     token = create_access_token({"sub": str(user.id)})
 
     return {
