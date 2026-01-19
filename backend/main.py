@@ -2,9 +2,10 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from datetime import datetime
 
 from database import get_db
-from models import User, Neighbourhood
+from models import User, Neighbourhood, CrimeCategory, CrimeWeight, CrimeFormData
 from auth import get_current_user, create_access_token, authenticate_user
 
 app = FastAPI(
@@ -84,6 +85,75 @@ async def list_users(db: Session = Depends(get_db)):
         {"id": u.id, "email": u.email, "role": u.role}
         for u in users
     ]
+
+
+@app.get("/api/crime/meta")
+async def get_crime_meta(db: Session = Depends(get_db)):
+    """Return main categories, their weights, and subcategories.
+
+    This is used by the Insert page to populate dropdowns and checkboxes.
+    """
+    weights = db.query(CrimeWeight).all()
+    categories = db.query(CrimeCategory).all()
+
+    subs_by_main: dict[str, list[str]] = {}
+    for c in categories:
+        subs_by_main.setdefault(c.main_category, []).append(c.subcategory)
+
+    result = []
+    for w in weights:
+        result.append({
+            "main_category": w.main_category,
+            "weight": w.weight,
+            "subcategories": subs_by_main.get(w.main_category, []),
+        })
+    return result
+
+
+class CrimeFormCreate(BaseModel):
+    main_category: str
+    subcategories: list[str]
+    neighbourhood_name: str
+    date: str  # ISO date string (YYYY-MM-DD)
+    offender_income_level: str
+    climate: str
+    time_of_year: str
+
+
+@app.post("/api/crime-form", status_code=201)
+async def create_crime_form(
+    payload: CrimeFormCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Only General Statistic user can insert
+    if current_user.role != "general_statistic":
+        raise HTTPException(status_code=403, detail="Not authorized to insert crime data")
+
+    weight_row = db.query(CrimeWeight).filter_by(main_category=payload.main_category).first()
+    if not weight_row:
+        raise Exception("Invalid main category: no weight defined")
+
+    try:
+        crime_date = datetime.fromisoformat(payload.date).date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; expected YYYY-MM-DD")
+
+    record = CrimeFormData(
+        main_category=payload.main_category,
+        crime_weight=weight_row.weight,
+        subcategories=", ".join(payload.subcategories),
+        neighbourhood_name=payload.neighbourhood_name,
+        date=crime_date,
+        offender_income_level=payload.offender_income_level,
+        climate=payload.climate,
+        time_of_year=payload.time_of_year,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return {"id": record.id, "message": "Data saved successfully"}
 
 
 class LoginRequest(BaseModel):
