@@ -4,7 +4,7 @@ const LogoutModal = ({ isOpen, onClose, onConfirm }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center" style={{ zIndex: 9999 }}>
             <div className="bg-white rounded-lg p-8 w-[400px] mx-4 border border-gray-200 shadow-lg">
                 <div className="text-center">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">

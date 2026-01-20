@@ -519,3 +519,57 @@ async def read_me(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "role": current_user.role,
     }
+
+@app.get("/api/neighbourhoods-with-coords")
+async def list_neighbourhoods_with_coords(db: Session = Depends(get_db)):
+    """Return all neighbourhoods with their coordinates for map display."""
+    rows = db.query(Neighbourhood).order_by(Neighbourhood.name).all()
+    return [
+        {
+            "id": n.id,
+            "name": n.name,
+            "latitude": float(n.latitude) if n.latitude is not None else None,
+            "longitude": float(n.longitude) if n.longitude is not None else None,
+            "population": float(n.population) if n.population is not None else None,
+        }
+        for n in rows
+    ]
+
+
+@app.get("/api/neighbourhood/{neighbourhood_name}/crime-weight")
+async def get_neighbourhood_crime_weight(
+    neighbourhood_name: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate the average crime weight for a specific neighbourhood.
+    
+    This is computed by finding the most common crime category in this neighbourhood
+    and returning its weight.
+    """
+    # Get the most common crime category in this neighbourhood
+    result = db.execute(text("""
+        SELECT c.main_category, cw.weight, COUNT(*) as cnt
+        FROM crime_form_data c
+        JOIN crime_weights cw ON cw.main_category = c.main_category
+        WHERE c.neighbourhood_name = :neighbourhood_name
+        GROUP BY c.main_category, cw.weight
+        ORDER BY cnt DESC, c.main_category
+        LIMIT 1
+    """), {"neighbourhood_name": neighbourhood_name}).mappings().first()
+    
+    if not result:
+        # No crime data for this neighbourhood, return neutral weight
+        return {
+            "neighbourhood_name": neighbourhood_name,
+            "crime_weight": 5,  # Neutral/medium weight
+            "main_category": None,
+            "crime_count": 0
+        }
+    
+    return {
+        "neighbourhood_name": neighbourhood_name,
+        "crime_weight": int(result["weight"]),
+        "main_category": result["main_category"],
+        "crime_count": int(result["cnt"])
+    }

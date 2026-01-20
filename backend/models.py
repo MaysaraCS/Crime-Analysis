@@ -36,6 +36,9 @@ class Neighbourhood(Base):
     university_education_percent = Column(Numeric(5, 2), nullable=False)
     unemployment_percent = Column(Numeric(5, 2), nullable=False)
     unmarried_over_30_percent = Column(Numeric(5, 2), nullable=False)
+    # Geographic coordinates for mapping
+    latitude = Column(Numeric(10, 7), nullable=True)
+    longitude = Column(Numeric(10, 7), nullable=True)
 
 
 class CrimeCategory(Base):

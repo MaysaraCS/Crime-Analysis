@@ -6,6 +6,7 @@ import {
     BookText,
     PenLine,
     FileChartColumnIncreasing,
+    Map,
     LogOut,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -29,9 +30,9 @@ const navItems = [
         roles: ["administrator", "ministry_of_interior"],
     },
     {
-        to: "/crime/profile",
-        label: "Profile",
-        Icon: User,
+        to: "/crime/maps",
+        label: "Crime Maps",
+        Icon: Map,
         roles: "any",
     },
 ];
@@ -64,12 +65,12 @@ const Sidebar = ({ sidebar, setSidebar }) => {
     return (
         <>
             <div
-                className={`w-90 bg-white border-r border-gray-200 
+    className={`w-90 bg-white border-r border-gray-200 
       flex flex-col justify-between items-center
       max-sm:absolute top-14 bottom-0
       ${sidebar ? "translate-x-0" : "max-sm:-translate-x-full"}
-      transition-all duration-300 ease-in-out z-40`}
-            >
+      transition-all duration-300 ease-in-out z-50`}
+>
                 <div className="my-7 w-full ">
                     <div className="px-6 mt-5 text-sm text-gray-600 font-medium ">
                         {visibleNavItems.map(({ to, label, Icon }) => (

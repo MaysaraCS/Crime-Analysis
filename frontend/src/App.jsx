@@ -1,5 +1,3 @@
-//import React, { useState } from "react";
-
 import { Routes, Route } from "react-router-dom";
 import AdminPage from "./pages/AdminPage";
 import Dashboard from "./pages/Dashboard";
@@ -8,7 +6,7 @@ import InsertPage from "./pages/InsertPage";
 import Layout from "./pages/Layout";
 import ReportPage from "./pages/ReportPage";
 import UpdatePage from "./pages/UpdatePage";
-import Profile from "./pages/Profile";
+import MapsPage from "./pages/MapsPage";
 import Login from "./pages/Login";
 import { Toaster } from "react-hot-toast";
 
@@ -25,7 +23,7 @@ function App() {
           <Route path="insert-info" element={<InsertPage />} />
           <Route path="update-info" element={<UpdatePage />} />
           <Route path="report-page" element={<ReportPage />} />
-          <Route path="profile" element={<Profile />} />
+          <Route path="maps" element={<MapsPage />} />
         </Route>
       </Routes>
     </div>
