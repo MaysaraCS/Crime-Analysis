@@ -7,8 +7,9 @@ from sqlalchemy import pool
 from alembic import context
 from dotenv import load_dotenv
 
-from database import Base  # import your Base
-from models import User  # noqa: F401  (import so metadata includes it)
+from database import Base
+# Import all models so they're registered with Base.metadata
+from models import User, Neighbourhood, CrimeCategory, CrimeWeight, CrimeFormData  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
