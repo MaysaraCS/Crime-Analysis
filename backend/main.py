@@ -9,10 +9,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS for frontend dev (Vite on localhost:5173)
+# CORS for frontend dev (Vite on localhost:5173) and Vercel deployments
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https://crime-analysis-.*\.vercel\.app",  # Matches all Vercel preview & branch deployments
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
