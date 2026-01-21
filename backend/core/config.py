@@ -15,4 +15,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    # Add your Vercel domain here after deployment
+    "https://your-app-name.vercel.app",  # Replace with your actual Vercel URL
+    "https://*.vercel.app",  # Allow all Vercel preview deployments
 ]
