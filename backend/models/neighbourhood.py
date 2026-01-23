@@ -1,6 +1,11 @@
 from sqlalchemy import Column, Integer, String, Numeric
 from database import Base
 
+# Stores demographic information about each neighbourhood
+# population: stored as thousands (e.g., 64.326 = 64,326 people)
+# income_level: categorical (High/Medium/Low)
+# Percentages: university education, unemployment, unmarried over 30
+# latitude/longitude: GPS coordinates for map display
 
 class Neighbourhood(Base):
     """Neighbourhood demographic and crime-related attributes.

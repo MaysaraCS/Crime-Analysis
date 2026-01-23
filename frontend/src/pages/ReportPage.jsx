@@ -28,7 +28,9 @@ const ReportPage = () => {
   if (!allowedRoles.includes(role)) {
     return <Navigate to="/crime" replace />;
   }
-
+// Fetches either crime or general report data based on reportType
+// Endpoint changes based on selected report type
+// Requires authentication token in headers
   const loadReport = async () => {
     setLoading(true);
     try {
@@ -48,7 +50,10 @@ const ReportPage = () => {
       setLoading(false);
     }
   };
-
+// Requests PDF report from backend
+// mode='view': opens PDF in new tab
+// mode='download': triggers file download
+// Creates temporary URL for blob data, then cleans up
   const handleExport = async (mode) => {
     try {
       const res = await fetch(
@@ -81,7 +86,10 @@ const ReportPage = () => {
   };
 
   const labels = useMemo(() => dataRows.map((r) => r.neighbourhood_name), [dataRows]);
-
+// Prepares data for three different chart types: bar, pie, and line
+// Each chart shows different metrics based on report type
+// Crime report: focuses on population and unemployment
+// General report: focuses on crime weight analysis
   const barData = useMemo(() => {
     if (reportType === 'crime') {
       return {

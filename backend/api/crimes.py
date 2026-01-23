@@ -9,6 +9,9 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["Crimes"])
 
+# GET /api/crime-forms - Returns all crime records from database
+# Ordered by ID descending (newest first)
+# Requires authentication via get_current_user dependency
 
 @router.get("/crime-forms")
 async def list_crime_forms(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -29,6 +32,9 @@ async def list_crime_forms(db: Session = Depends(get_db), current_user: User = D
         for r in rows
     ]
 
+# GET /api/crime/meta - Returns available crime categories and their weights
+# Also includes subcategories for each main category
+# Used to populate dropdown menus in the frontend form
 
 @router.get("/crime/meta")
 async def get_crime_meta(db: Session = Depends(get_db)):
@@ -59,6 +65,10 @@ class CrimeFormCreate(BaseModel):
     climate: str
     time_of_year: str
 
+# POST /api/crime-form - Inserts new crime record
+# Only general_statistic and administrator roles can insert
+# Validates main_category has a weight defined
+# Converts date string to Python date object before saving
 
 @router.post("/crime-form", status_code=201)
 async def create_crime_form(
@@ -105,6 +115,9 @@ class CrimeFormUpdate(BaseModel):
     climate: str
     time_of_year: str
 
+# PUT /api/crime-form/{crime_id} - Updates existing crime record
+# Multiple roles can update (general_statistic, hr, civil_status, ministry_of_justice, administrator)
+# Validates the record exists and updates all fields
 
 @router.put("/crime-form/{crime_id}")
 async def update_crime_form(
@@ -144,6 +157,9 @@ async def update_crime_form(
 
     return {"id": record.id, "message": "Data updated successfully"}
 
+# DELETE /api/crime-form/{crime_id} - Deletes a crime record
+# Only administrator role can delete
+# Returns 204 No Content on success
 
 @router.delete("/crime-form/{crime_id}", status_code=204)
 async def delete_crime_form(

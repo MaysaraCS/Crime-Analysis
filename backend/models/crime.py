@@ -1,6 +1,8 @@
 from sqlalchemy import Column, Integer, String, Date
 from database import Base
 
+# Stores the relationship between main crime categories and subcategories
+# Example: main_category="Theft", subcategory="Vehicle Theft"
 
 class CrimeCategory(Base):
     """Main crime categories and their subcategories."""
@@ -11,6 +13,9 @@ class CrimeCategory(Base):
     main_category = Column(String, nullable=False)
     subcategory = Column(String, nullable=False)
 
+# Stores severity weight (1-10) for each main crime category
+# Higher weight = more severe crime
+# Used to calculate neighbourhood risk levels
 
 class CrimeWeight(Base):
     """Weight per main crime category (1-10)."""
@@ -21,6 +26,11 @@ class CrimeWeight(Base):
     main_category = Column(String, unique=True, nullable=False)
     weight = Column(Integer, nullable=False)
 
+# Stores actual crime incident records entered by users
+# main_category and crime_weight are copied from CrimeWeight table
+# subcategories: comma-separated list of selected subcategories
+# Additional context: offender income, climate, season
+# date: when the crime occurred
 
 class CrimeFormData(Base):
     """Data entered on the crime information form (Insert page)."""

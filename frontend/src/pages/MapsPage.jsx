@@ -17,6 +17,9 @@ const MapController = ({ center }) => {
 };
 
 // Helper function to determine circle color based on crime weight
+// Converts numeric crime weight (1-10) to color code
+// Red = high risk (9-10), Green = low risk (3)
+// Creates visual heat map effect on the map
 const getWeightColor = (weight) => {
   if (weight >= 9) return '#ef4444'; // red (high)
   if (weight >= 7) return '#f97316'; // orange (high-medium)
@@ -54,6 +57,8 @@ const MapsPage = () => {
         const data = await res.json();
         
         // Filter out neighbourhoods without coordinates
+        // Filters out neighbourhoods without GPS data
+        // Only neighbourhoods with lat/long can be displayed on map
         const validNeighbourhoods = data.filter(n => n.latitude && n.longitude);
         setNeighbourhoods(validNeighbourhoods);
       } catch (err) {
@@ -68,6 +73,8 @@ const MapsPage = () => {
   }, []);
 
   // Handle neighbourhood selection
+  // Updates map center when user selects neighbourhood from dropdown
+// Resets crime weight display until user clicks "Show Crime Weight"
   const handleNeighbourhoodSelect = (e) => {
     const neighbourhoodName = e.target.value;
     if (!neighbourhoodName) {
@@ -84,6 +91,10 @@ const MapsPage = () => {
   };
 
   // Load crime weight for selected neighbourhood
+  // Fetches crime weight data for selected neighbourhood
+// Calculates based on most common crime type in that area
+// Displays colored circle overlay on map indicating risk level
+
   const handleShowCrimeWeight = async () => {
     if (!selectedNeighbourhood) return;
 
@@ -201,7 +212,13 @@ const MapsPage = () => {
         )}
       </div>
 
-      {/* Map Container */}
+      {/* Map Container
+      // MapContainer: Leaflet map component centered on Dammam
+      // Circle: Visual indicator of crime weight with 1km radius
+      // Color and opacity change based on crime weight
+      // Popup shows detailed information when clicked
+      //  */}
+      
       <div className="relative" style={{ height: '600px', minHeight: '400px' }}>
         <MapContainer
           center={defaultCenter}

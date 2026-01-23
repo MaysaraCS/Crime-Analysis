@@ -12,6 +12,9 @@ from models import User
 
 load_dotenv()
 
+# SECRET_KEY is used to sign tokens - must match in .env file
+# ALGORITHM specifies how tokens are encrypted (HS256 is standard)
+
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")  # set a strong key in .env
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
@@ -19,6 +22,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 # HTTP Bearer auth scheme to read the Authorization header
 http_bearer = HTTPBearer(auto_error=False)
 
+# Creates a JWT token that expires after 24 hours
+# The token contains user ID in the "sub" (subject) field
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a signed JWT for the given payload."""
@@ -30,6 +35,8 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+# Checks if email exists and password matches
+# Returns User object if valid, None if invalid
 
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
     """Return the user if email/password match, else None.
@@ -44,6 +51,9 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
         return None
     return user
 
+# Extracts and validates the JWT token from Authorization header
+# Decodes token to get user ID and fetches user from database
+# Used as a dependency in protected routes to get the logged-in user
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(http_bearer),

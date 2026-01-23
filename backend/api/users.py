@@ -6,6 +6,10 @@ from models import User
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
+# Represents the users table in the database
+# Stores email, password (plain text - demo only), and role
+# role field determines what pages/actions user can access
+# Uses SQLAlchemy ORM to map Python class to database table
 
 @router.get("")
 async def list_users(db: Session = Depends(get_db)):

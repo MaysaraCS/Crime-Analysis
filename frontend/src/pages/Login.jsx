@@ -4,6 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import toast from 'react-hot-toast';
 
+// Pre-defined list of valid system users
+// Each option shows department name for easy selection
+
 const EMAIL_OPTIONS = [
   { value: 'generalStatistics123@gmail.com', label: 'General Statistics' },
   { value: 'HumanResources456@gmail.com', label: 'Human Resources' },
@@ -28,6 +31,11 @@ const Login = () => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
+
+// Sends email and password to /auth/login endpoint
+// On success: stores token and user in AuthContext, redirects to /crime
+// On failure: displays error message to user
+// Uses toast notifications for user feedback
 
   const handleSubmit = async (e) => {
     e.preventDefault();

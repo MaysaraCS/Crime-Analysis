@@ -16,6 +16,9 @@ from utils.chart_generator import create_pie_chart, create_bar_chart, create_lin
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
+# Returns crime data per neighbourhood for report generation
+# Uses LATERAL join to find the most common crime category per neighbourhood
+# LATERAL allows the subquery to reference the outer query (n.name)
 
 @router.get("/crime")
 async def crime_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -41,6 +44,8 @@ async def crime_report(db: Session = Depends(get_db), current_user: User = Depen
     """)).mappings().all()
     return list(rows)
 
+# Similar to crime_report but includes average crime weight
+# Joins with crime_weights table to get weight values
 
 @router.get("/general")
 async def general_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -66,6 +71,11 @@ async def general_report(db: Session = Depends(get_db), current_user: User = Dep
     """)).mappings().all()
     return list(rows)
 
+# Generates a PDF report with charts and tables
+# Only administrator and ministry_of_interior can export
+# Uses ReportLab library to create professional PDF documents
+# Includes pie chart, bar chart, line chart, and data table
+# Returns PDF as streaming response for download or view
 
 @router.get("/export")
 async def export_report(type: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

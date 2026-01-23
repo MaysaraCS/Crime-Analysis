@@ -27,6 +27,9 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Fetches all neighbourhoods from API
+// Handles errors and displays them to user
+// Sets loading state while fetching
   useEffect(() => {
     const load = async () => {
       try {
@@ -48,6 +51,10 @@ const Dashboard = () => {
     load();
   }, []);
 
+  // Calculates total population by income level
+// Groups neighbourhoods by Low/Medium/High income
+// Creates data structure for Chart.js Pie chart
+// useMemo prevents recalculation on every render
   const incomePieData = useMemo(() => {
     const totals = rows.reduce((acc, n) => {
       if (!n.income_level) return acc;
@@ -69,6 +76,10 @@ const Dashboard = () => {
       ],
     };
   }, [rows]);
+
+// Creates bar chart data with neighbourhood names as labels
+// Population values as bar heights
+// Cycles through color palette for visual distinction
 
     const populationBarData = useMemo(() => {
     const labels = rows.map((r) => r.name);
@@ -97,7 +108,9 @@ const Dashboard = () => {
       ],
     };
   }, [rows]);
-
+// Creates line chart showing unemployment rate per neighbourhood
+// Green color theme for unemployment metric
+// Tension: 0.3 creates smooth curve between points
   const unemploymentLineData = useMemo(() => {
     const labels = rows.map((r) => r.name);
     const values = rows.map((r) => r.unemployment_percent || 0);

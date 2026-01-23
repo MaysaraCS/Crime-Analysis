@@ -42,6 +42,10 @@ const InsertPage = () => {
     time_of_year: 'summer',
   });
 
+  // Fetches crime categories, weights, and neighbourhoods from API
+// Sets first category and neighbourhood as defaults
+// This populates all dropdown menus in the form
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -84,6 +88,10 @@ const InsertPage = () => {
     return <Navigate to="/crime" replace />;
   }
 
+  // When user selects a different crime category
+// Updates weight automatically based on category
+// Clears previously selected subcategories
+
   const handleMainCategoryChange = (e) => {
     const main_category = e.target.value;
     const selected = meta.find((m) => m.main_category === main_category);
@@ -94,7 +102,8 @@ const InsertPage = () => {
       subcategories: [],
     }));
   };
-
+// Toggles subcategory selection (add/remove from array)
+// Allows multiple subcategories to be selected
   const handleCheckboxChange = (subcategory) => {
     setForm((prev) => {
       const exists = prev.subcategories.includes(subcategory);
@@ -115,7 +124,10 @@ const InsertPage = () => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
-
+// Validates required fields are filled
+// Sends POST request to /api/crime-form endpoint
+// On success: shows success message and resets form
+// Only general_statistic role can insert data (role check at top)
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.main_category || !form.crime_weight || !form.neighbourhood_name || !form.date) {

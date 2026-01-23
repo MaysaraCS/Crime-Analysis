@@ -13,6 +13,11 @@ import { NavLink } from "react-router-dom";
 import LogoutModal from "./LogoutModal";
 import { useAuth } from "../auth/AuthContext.jsx";
 
+// Defines all navigation menu items
+// roles: "any" means all users can see it
+// roles: ["administrator"] means only admin sees it
+// roles: array means any of those roles can see it
+
 const navItems = [
     { to: "/crime", label: "Dashboard", Icon: House, roles: "any" },
     { to: "/crime/admin-page", label: "Admin Page", Icon: UserStar, roles: ["administrator"] },
@@ -40,7 +45,8 @@ const navItems = [
 const Sidebar = ({ sidebar, setSidebar }) => {
     const { user, logout } = useAuth();
     const role = user?.role;
-
+// Filters navigation items based on current user's role
+// Only shows menu items the user has permission to access
     const visibleNavItems = navItems.filter((item) => {
         if (item.roles === "any") return true;
         if (!role) return false;
@@ -74,6 +80,9 @@ const Sidebar = ({ sidebar, setSidebar }) => {
                 <div className="my-7 w-full ">
                     <div className="px-6 mt-5 text-sm text-gray-600 font-medium ">
                         {visibleNavItems.map(({ to, label, Icon }) => (
+                            // NavLink automatically adds 'isActive' when route matches
+                            // Active route gets gradient background, others get hover effect
+                            // onClick closes sidebar on mobile after navigation
                             <NavLink
                                 key={to}
                                 to={to}

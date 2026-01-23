@@ -7,6 +7,8 @@ from models import Neighbourhood
 
 router = APIRouter(prefix="/api", tags=["Neighbourhoods"])
 
+# Calculates total number of neighbourhoods and total population
+# Sums population across all neighbourhoods for overview stats
 
 @router.get("/dashboard-summary")
 async def dashboard_summary(db: Session = Depends(get_db)):
@@ -19,6 +21,8 @@ async def dashboard_summary(db: Session = Depends(get_db)):
         "total_population": total_population,
     }
 
+# Returns all neighbourhood data for charts and tables
+# Converts Numeric database types to float for JSON serialization
 
 @router.get("/neighbourhoods")
 async def list_neighbourhoods(db: Session = Depends(get_db)):
@@ -37,6 +41,8 @@ async def list_neighbourhoods(db: Session = Depends(get_db)):
         for n in rows
     ]
 
+# Returns neighbourhoods with their GPS coordinates
+# Used specifically for the map visualization page
 
 @router.get("/neighbourhoods-with-coords")
 async def list_neighbourhoods_with_coords(db: Session = Depends(get_db)):
@@ -53,6 +59,10 @@ async def list_neighbourhoods_with_coords(db: Session = Depends(get_db)):
         for n in rows
     ]
 
+# Calculates average crime weight for a specific neighbourhood
+# Finds the most common crime category in that area
+# Uses raw SQL query to join crime_form_data with crime_weights
+# Returns neutral weight (5) if no crime data exists for the neighbourhood
 
 @router.get("/neighbourhood/{neighbourhood_name}/crime-weight")
 async def get_neighbourhood_crime_weight(

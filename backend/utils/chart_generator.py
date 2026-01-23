@@ -1,9 +1,15 @@
 import matplotlib
+# 'Agg' is non-GUI backend for generating charts without display
+# Required for server-side chart generation
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from collections import Counter
 from io import BytesIO
 
+# Counts occurrences of each crime category across all data rows
+# Creates a pie chart showing distribution of crime types
+# Returns BytesIO buffer containing PNG image data
+# Used in PDF reports to visualize crime category breakdown
 
 def create_pie_chart(data_rows):
     """Create a pie chart for crime categories distribution."""
@@ -30,6 +36,10 @@ def create_pie_chart(data_rows):
     plt.close()
     return buf
 
+# Creates bar chart for either population or crime weight
+# Report type determines which metric to display
+# Different colors for each neighbourhood bar
+# Used to compare metrics across neighbourhoods
 
 def create_bar_chart(data_rows, report_type):
     """Create a bar chart for population or avg crime weight."""
@@ -60,6 +70,10 @@ def create_bar_chart(data_rows, report_type):
     plt.close()
     return buf
 
+# Creates line chart for trends over neighbourhoods
+# Shows unemployment % for crime report
+# Shows crime weight trend for general report
+# Grid added for easier reading of values
 
 def create_line_chart(data_rows, report_type):
     """Create a line chart for unemployment or avg crime weight trend."""
