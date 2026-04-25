@@ -47,7 +47,7 @@ const UpdateFormPage = ({ isOpen, record, onClose, onUpdated }) => {
       try {
         const [metaRes, neighRes] = await Promise.all([
           fetch(`${import.meta.env.VITE_API_BASE_URL}/api/crime/meta`),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighbourhoods`),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighborhoods`),
         ]);
 
         const metaData = await metaRes.json();
@@ -71,7 +71,7 @@ const UpdateFormPage = ({ isOpen, record, onClose, onUpdated }) => {
           time_of_year: record.time_of_year || 'summer',
         });
       } catch (err) {
-        console.error('Failed to load meta/neighbourhoods', err);
+        console.error('Failed to load meta/neighborhoods', err);
         toast.error('Failed to load reference data');
       } finally {
         setLoading(false);

@@ -1,0 +1,73 @@
+Query01
+
+-- A) Crime classifications (Table 4)
+DROP TABLE IF EXISTS crime_classifications CASCADE;
+CREATE TABLE crime_classifications (
+  id SERIAL PRIMARY KEY,
+  code INTEGER UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  weight INTEGER NOT NULL CHECK (weight BETWEEN 1 AND 5)
+);
+
+-- B) Neighborhoods + demographic scores (Table 6)
+DROP TABLE IF EXISTS neighborhoods CASCADE;
+CREATE TABLE neighborhoods (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  latitude NUMERIC(10,7) NOT NULL,
+  longitude NUMERIC(10,7) NOT NULL,
+
+  population_density_score INTEGER NOT NULL CHECK (population_density_score IN (1,3,5)),
+  divorce_ratio_score INTEGER NOT NULL CHECK (divorce_ratio_score IN (1,3,5)),
+  unmarried_over_30_score INTEGER NOT NULL CHECK (unmarried_over_30_score IN (1,3,5)),
+  university_education_score INTEGER NOT NULL CHECK (university_education_score IN (1,3,5)),
+  unemployment_score INTEGER NOT NULL CHECK (unemployment_score IN (1,3,5)),
+  income_score INTEGER NOT NULL CHECK (income_score IN (1,3,5)),
+  vitality_score INTEGER NOT NULL CHECK (vitality_score IN (1,3,5))
+);
+
+-- C) Monthly crime counts per neighborhood/classification
+DROP TABLE IF EXISTS crime_monthly_counts CASCADE;
+CREATE TABLE crime_monthly_counts (
+  id SERIAL PRIMARY KEY,
+  neighborhood_id INTEGER NOT NULL REFERENCES neighborhoods(id) ON DELETE CASCADE,
+  classification_id INTEGER NOT NULL REFERENCES crime_classifications(id) ON DELETE CASCADE,
+  year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
+  month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+  crime_count INTEGER NOT NULL CHECK (crime_count >= 0),
+  UNIQUE (neighborhood_id, classification_id, year, month)
+);
+
+-- D) Optional cache for computed risk scores
+DROP TABLE IF EXISTS risk_scores CASCADE;
+CREATE TABLE risk_scores (
+  id SERIAL PRIMARY KEY,
+  neighborhood_id INTEGER NOT NULL REFERENCES neighborhoods(id) ON DELETE CASCADE,
+  year INTEGER NOT NULL,
+  r1 NUMERIC(6,2) NOT NULL,
+  r2 NUMERIC(6,2) NOT NULL,
+  r NUMERIC(6,2) NOT NULL,
+  label TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT now(),
+  UNIQUE (neighborhood_id, year)
+);
+
+
+Query02
+INSERT INTO crime_classifications (code, name, description, weight) VALUES
+(1, 'Assault', 'Physical assault cases', 5),
+(2, 'Theft', 'General theft incidents', 4),
+(3, 'Robbery', 'Robbery incidents', 5),
+(4, 'Burglary', 'House/shop burglary', 4),
+(5, 'Drugs', 'Drug-related crimes', 5),
+(6, 'Vandalism', 'Property vandalism', 3),
+(7, 'Fraud', 'Fraud/scams', 3),
+(8, 'Harassment', 'Harassment/abuse', 3),
+(9, 'Traffic', 'Traffic-related violations', 2),
+(10,'Other', 'Other crimes', 1);
+
+
+Query03
+ALTER TABLE neighborhoods
+ADD COLUMN IF NOT EXISTS is_core BOOLEAN NOT NULL DEFAULT TRUE;

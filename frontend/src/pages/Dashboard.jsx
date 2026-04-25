@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,8 +9,8 @@ import {
   ArcElement,
   Tooltip,
   Legend,
-} from 'chart.js';
-import { Bar, Line, Pie } from 'react-chartjs-2';
+} from "chart.js";
+import { Bar, Line, Pie } from "react-chartjs-2";
 
 ChartJS.register(
   CategoryScale,
@@ -22,27 +22,38 @@ ChartJS.register(
   Tooltip,
   Legend
 );
+
+const API = import.meta.env.VITE_API_BASE_URL;
+
 const Dashboard = () => {
-  const [rows, setRows] = useState([]);
+  const [neighborhoods, setNeighborhoods] = useState([]);
+  const [riskRows, setRiskRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetches all neighbourhoods from API
-// Handles errors and displays them to user
-// Sets loading state while fetching
+  // Load neighborhoods + risk in parallel
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighbourhoods`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.detail || `Failed to load data (${res.status})`);
-        }
-        const data = await res.json();
-        setRows(data);
+        const [nRes, rRes] = await Promise.all([
+          fetch(`${API}/api/neighborhoods`),
+          fetch(`${API}/api/risk?year=2025`),
+        ]);
+
+        if (!nRes.ok) throw new Error(`Failed /api/neighborhoods (${nRes.status})`);
+        if (!rRes.ok) throw new Error(`Failed /api/risk (${rRes.status})`);
+
+        const nData = await nRes.json();
+        const rData = await rRes.json();
+
+        setNeighborhoods(Array.isArray(nData) ? nData : []);
+        setRiskRows(Array.isArray(rData) ? rData : []);
       } catch (err) {
-        console.error('Failed to load neighbourhoods', err);
-        setError(err.message);
+        console.error(err);
+        setError(err.message || "Failed to load dashboard data");
       } finally {
         setLoading(false);
       }
@@ -51,83 +62,119 @@ const Dashboard = () => {
     load();
   }, []);
 
-  // Calculates total population by income level
-// Groups neighbourhoods by Low/Medium/High income
-// Creates data structure for Chart.js Pie chart
-// useMemo prevents recalculation on every render
-  const incomePieData = useMemo(() => {
-    const totals = rows.reduce((acc, n) => {
-      if (!n.income_level) return acc;
-      const key = n.income_level;
-      acc[key] = (acc[key] || 0) + (n.population || 0);
+  // ---------- KPIs ----------
+  const kpis = useMemo(() => {
+    const total = riskRows.length || neighborhoods.length || 0;
+
+    const avgR =
+      riskRows.length > 0
+        ? riskRows.reduce((s, x) => s + (Number(x.r) || 0), 0) / riskRows.length
+        : 0;
+
+    const avgConfidence =
+      riskRows.length > 0
+        ? riskRows
+            .filter((x) => x.confidence != null)
+            .reduce((s, x) => s + (Number(x.confidence) || 0), 0) /
+          Math.max(1, riskRows.filter((x) => x.confidence != null).length)
+        : 0;
+
+    return {
+      totalNeighborhoods: total,
+      avgR: avgR,
+      avgConfidence: avgConfidence,
+    };
+  }, [riskRows, neighborhoods]);
+
+  // ---------- Label distributions ----------
+  const mlLabelPie = useMemo(() => {
+    const counts = riskRows.reduce((acc, r) => {
+      const k = r.predicted_label || "unknown";
+      acc[k] = (acc[k] || 0) + 1;
       return acc;
     }, {});
 
-    const labels = Object.keys(totals);
-    const values = labels.map((l) => totals[l]);
+    const labels = Object.keys(counts);
+    const values = labels.map((l) => counts[l]);
 
     return {
       labels,
       datasets: [
         {
           data: values,
-          backgroundColor: ['#1d4ed8', '#f97316', '#22c55e'],
+          backgroundColor: ["#22c55e", "#eab308", "#f97316", "#ef4444", "#94a3b8"],
         },
       ],
     };
-  }, [rows]);
+  }, [riskRows]);
 
-// Creates bar chart data with neighbourhood names as labels
-// Population values as bar heights
-// Cycles through color palette for visual distinction
+  const formulaLabelPie = useMemo(() => {
+    const counts = riskRows.reduce((acc, r) => {
+      const k = r.formula_label || "unknown";
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {});
 
-    const populationBarData = useMemo(() => {
-    const labels = rows.map((r) => r.name);
-    const values = rows.map((r) => r.population || 0);
-
-    // Basic color palette for bar segments
-    const barColors = [
-      '#4f46e5', // blue / purple
-      '#f59e0b', // yellow / amber
-      '#f97373', // light red
-      '#22c55e', // green
-      '#0ea5e9', // light blue
-      '#a855f7', // purple
-    ];
+    const labels = Object.keys(counts);
+    const values = labels.map((l) => counts[l]);
 
     return {
       labels,
       datasets: [
         {
-          label: 'Population (thousands)',
           data: values,
-          backgroundColor: labels.map((_, idx) => barColors[idx % barColors.length]),
-          borderColor: labels.map((_, idx) => barColors[idx % barColors.length]),
+          backgroundColor: ["#22c55e", "#eab308", "#f97316", "#ef4444", "#94a3b8"],
+        },
+      ],
+    };
+  }, [riskRows]);
+
+  // ---------- Top risk bar chart ----------
+  const topRiskBar = useMemo(() => {
+    const sorted = [...riskRows].sort((a, b) => (Number(b.r) || 0) - (Number(a.r) || 0)).slice(0, 10);
+    const labels = sorted.map((x) => x.name);
+    const values = sorted.map((x) => Number(x.r) || 0);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: "Risk Score (R)",
+          data: values,
+          backgroundColor: "#3c81f6",
+          borderColor: "#3c81f6",
           borderWidth: 1,
         },
       ],
     };
-  }, [rows]);
-// Creates line chart showing unemployment rate per neighbourhood
-// Green color theme for unemployment metric
-// Tension: 0.3 creates smooth curve between points
-  const unemploymentLineData = useMemo(() => {
-    const labels = rows.map((r) => r.name);
-    const values = rows.map((r) => r.unemployment_percent || 0);
+  }, [riskRows]);
 
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Unemployment %',
-          data: values,
-          borderColor: '#10b981',
-          backgroundColor: 'rgba(16,185,129,0.2)',
-          tension: 0.3,
-        },
-      ],
-    };
-  }, [rows]);
+  // ---------- Average demographic scores ----------
+  const demoAvgLine = useMemo(() => {
+    if (!neighborhoods.length) {
+      return { labels: [], datasets: [] };
+    }
+
+    const keys = [
+      { key: "population_density", label: "Pop Density" },
+      { key: "divorce_ratio", label: "Divorce" },
+      { key: "unmarried_over_30", label: "Unmarried >30" },
+      { key: "university_education", label: "University Edu" },
+      { key: "unemployment", label: "Unemployment" },
+      { key: "income", label: "Income" },
+      { key: "vitality", label: "Vitality" },
+    ];
+
+    const labels = neighborhoods.map((n) => n.name);
+
+    const datasets = keys.map((k) => ({
+      label: k.label,
+      data: neighborhoods.map((n) => Number(n?.scores?.[k.key]) || 0),
+      tension: 0.25,
+    }));
+
+    return { labels, datasets };
+  }, [neighborhoods]);
 
   if (loading) {
     return <div className="p-6 text-gray-600">Loading dashboard data...</div>;
@@ -143,56 +190,82 @@ const Dashboard = () => {
 
   return (
     <div className="p-6 space-y-8">
-      <h2 className="text-2xl font-semibold mb-4">Neighbourhood Overview</h2>
+      <h2 className="text-2xl font-semibold mb-2">Crime Risk Dashboard (Dammam — 2025)</h2>
+      <p className="text-sm text-gray-600">
+        Dashboard summarizes risk computed from R1/R2 and the ML classifier prediction.
+      </p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow p-4 flex flex-col items-center">
-          <h3 className="font-medium mb-2">Population by Income Level</h3>
-          <div className="w-full h-80">
-            <Pie data={incomePieData} />
-          </div>
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500">Neighborhoods</div>
+          <div className="text-3xl font-semibold">{kpis.totalNeighborhoods}</div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4 col-span-2">
-          <h3 className="font-medium mb-2">Population per Neighbourhood</h3>
-          <div className="w-full h-72">
-            <Bar
-              data={populationBarData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { display: false },
-                },
-                scales: {
-                  x: {
-                    ticks: { maxRotation: 60, minRotation: 45 },
-                  },
-                  y: {
-                    beginAtZero: true,
-                  },
-                },
-              }}
-            />
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500">Average Risk (R)</div>
+          <div className="text-3xl font-semibold">{kpis.avgR.toFixed(2)}</div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500">Avg ML Confidence</div>
+          <div className="text-3xl font-semibold">
+            {(kpis.avgConfidence * 100).toFixed(1)}%
           </div>
         </div>
       </div>
 
+      {/* Label distributions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="font-medium mb-2">ML Predicted Labels</h3>
+          <div className="w-full h-80">
+            <Pie data={mlLabelPie} />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="font-medium mb-2">Formula Labels (Quantiles)</h3>
+          <div className="w-full h-80">
+            <Pie data={formulaLabelPie} />
+          </div>
+        </div>
+      </div>
+
+      {/* Top 10 risk */}
       <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="font-medium mb-2">Unemployment Rate by Neighbourhood</h3>
+        <h3 className="font-medium mb-2">Top 10 Neighborhoods by Risk (R)</h3>
         <div className="w-full h-80">
-          <Line
-            data={unemploymentLineData}
+          <Bar
+            data={topRiskBar}
             options={{
               responsive: true,
               maintainAspectRatio: false,
+              plugins: { legend: { display: true } },
               scales: {
-                y: {
-                  beginAtZero: true,
-                  ticks: {
-                    callback: (v) => `${v}%`,
-                  },
-                },
+                x: { ticks: { maxRotation: 60, minRotation: 45 } },
+                y: { beginAtZero: true },
+              },
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Demographic scores */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="font-medium mb-2">Demographic Score Profiles (1/3/5)</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Each line shows the 1/3/5 demographic scoring for neighborhoods.
+        </p>
+        <div className="w-full h-96">
+          <Line
+            data={demoAvgLine}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: "bottom" } },
+              scales: {
+                y: { beginAtZero: true, suggestedMax: 5 },
               },
             }}
           />
@@ -202,4 +275,4 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard
+export default Dashboard;

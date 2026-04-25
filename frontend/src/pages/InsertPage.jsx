@@ -51,7 +51,7 @@ const InsertPage = () => {
       try {
         const [metaRes, neighRes] = await Promise.all([
           fetch(`${import.meta.env.VITE_API_BASE_URL}/api/crime/meta`),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighbourhoods`),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighborhoods`),
         ]);
 
         const metaData = await metaRes.json();
@@ -74,7 +74,7 @@ const InsertPage = () => {
           setForm((prev) => ({ ...prev, neighbourhood_name: neighData[0].name }));
         }
       } catch (err) {
-        console.error('Failed to load crime meta/neighbourhoods', err);
+        console.error('Failed to load crime meta/neighborhoods', err);
         toast.error('Failed to load reference data');
       } finally {
         setLoading(false);

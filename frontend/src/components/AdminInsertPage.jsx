@@ -46,7 +46,7 @@ const AdminInsertPage = ({ isOpen, onClose, onInserted }) => {
       try {
         const [metaRes, neighRes] = await Promise.all([
           fetch(`${import.meta.env.VITE_API_BASE_URL}/api/crime/meta`),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighbourhoods`),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighborhoods`),
         ]);
 
         const metaData = await metaRes.json();
@@ -67,7 +67,7 @@ const AdminInsertPage = ({ isOpen, onClose, onInserted }) => {
           time_of_year: 'summer',
         });
       } catch (err) {
-        console.error('Failed to load meta/neighbourhoods', err);
+        console.error('Failed to load meta/neighborhoods', err);
         toast.error('Failed to load reference data');
       } finally {
         setLoading(false);

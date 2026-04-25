@@ -1,124 +1,60 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Circle, Popup, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import toast from 'react-hot-toast';
 
-// Component to handle map centering
-const MapController = ({ center }) => {
-  const map = useMap();
-  
-  useEffect(() => {
-    if (center) {
-      map.setView(center, 13);
-    }
-  }, [center, map]);
-  
-  return null;
+
+import React, { useEffect, useMemo, useState } from "react";
+import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import toast from "react-hot-toast";
+
+const API = import.meta.env.VITE_API_BASE_URL;
+
+const labelColor = (label) => {
+  if (label === "very_dangerous") return "red";
+  if (label === "dangerous") return "orange";
+  if (label === "moderate") return "yellow";
+  return "green"; // safe
 };
 
-// Helper function to determine circle color based on crime weight
-// Converts numeric crime weight (1-10) to color code
-// Red = high risk (9-10), Green = low risk (3)
-// Creates visual heat map effect on the map
-const getWeightColor = (weight) => {
-  if (weight >= 9) return '#ef4444'; // red (high)
-  if (weight >= 7) return '#f97316'; // orange (high-medium)
-  if (weight >= 5) return '#eab308'; // yellow (low-medium)
-  if (weight >= 4) return '#06b6d4'; // light blue (high-low)
-  return '#22c55e'; // green (low)
-};
-
-// Helper function to get weight category label
-const getWeightLabel = (weight) => {
-  if (weight >= 9) return 'High';
-  if (weight >= 7) return 'High-Medium';
-  if (weight >= 5) return 'Low-Medium';
-  if (weight >= 4) return 'High-Low';
-  return 'Low';
+const niceLabel = (label) => {
+  if (!label) return "-";
+  return label.replaceAll("_", " ");
 };
 
 const MapsPage = () => {
-  const [neighbourhoods, setNeighbourhoods] = useState([]);
-  const [selectedNeighbourhood, setSelectedNeighbourhood] = useState(null);
-  const [crimeData, setCrimeData] = useState(null);
-  const [showCrimeWeight, setShowCrimeWeight] = useState(false);
+  const [riskData, setRiskData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingWeight, setLoadingWeight] = useState(false);
 
-  // Default center for Dammam
+  // "ml" => predicted_label, "formula" => formula_label
+  const [mode, setMode] = useState("ml");
+
   const defaultCenter = [26.4207, 50.0888];
 
-  // Load neighbourhoods on mount
   useEffect(() => {
-    const loadNeighbourhoods = async () => {
+    const load = async () => {
+      setLoading(true);
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/neighbourhoods-with-coords`);
-        if (!res.ok) throw new Error('Failed to load neighbourhoods');
+        const res = await fetch(`${API}/api/risk?year=2025`);
+        if (!res.ok) throw new Error("Failed to load risk data");
         const data = await res.json();
-        
-        // Filter out neighbourhoods without coordinates
-        // Filters out neighbourhoods without GPS data
-        // Only neighbourhoods with lat/long can be displayed on map
-        const validNeighbourhoods = data.filter(n => n.latitude && n.longitude);
-        setNeighbourhoods(validNeighbourhoods);
+        if (!Array.isArray(data)) throw new Error("Invalid API response");
+        setRiskData(data);
       } catch (err) {
-        console.error('Failed to load neighbourhoods', err);
-        toast.error('Failed to load neighbourhood data');
+        console.error(err);
+        toast.error("Failed to load risk data from backend");
+        setRiskData([]);
       } finally {
         setLoading(false);
       }
     };
 
-    loadNeighbourhoods();
+    load();
   }, []);
 
-  // Handle neighbourhood selection
-  // Updates map center when user selects neighbourhood from dropdown
-// Resets crime weight display until user clicks "Show Crime Weight"
-  const handleNeighbourhoodSelect = (e) => {
-    const neighbourhoodName = e.target.value;
-    if (!neighbourhoodName) {
-      setSelectedNeighbourhood(null);
-      setCrimeData(null);
-      setShowCrimeWeight(false);
-      return;
-    }
-
-    const neighbourhood = neighbourhoods.find(n => n.name === neighbourhoodName);
-    setSelectedNeighbourhood(neighbourhood);
-    setCrimeData(null);
-    setShowCrimeWeight(false);
-  };
-
-  // Load crime weight for selected neighbourhood
-  // Fetches crime weight data for selected neighbourhood
-// Calculates based on most common crime type in that area
-// Displays colored circle overlay on map indicating risk level
-
-  const handleShowCrimeWeight = async () => {
-    if (!selectedNeighbourhood) return;
-
-    setLoadingWeight(true);
-    try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/neighbourhood/${encodeURIComponent(selectedNeighbourhood.name)}/crime-weight`
-      );
-      if (!res.ok) throw new Error('Failed to load crime data');
-      const data = await res.json();
-      
-      setCrimeData(data);
-      setShowCrimeWeight(true);
-    } catch (err) {
-      console.error('Failed to load crime weight', err);
-      toast.error('Failed to load crime weight data');
-    } finally {
-      setLoadingWeight(false);
-    }
-  };
-
-  const mapCenter = selectedNeighbourhood 
-    ? [selectedNeighbourhood.latitude, selectedNeighbourhood.longitude]
-    : defaultCenter;
+  const points = useMemo(() => {
+    return riskData.map((p) => {
+      const displayLabel = mode === "ml" ? p.predicted_label : p.formula_label;
+      return { ...p, displayLabel };
+    });
+  }, [riskData, mode]);
 
   if (loading) {
     return (
@@ -129,136 +65,107 @@ const MapsPage = () => {
   }
 
   return (
-    <div className="flex flex-col overflow-auto" style={{ height: 'calc(120vh - 56px)' }}>
-      {/* Header & Search Bar */}
-      <div className="bg-white border-b border-gray-200 p-4 space-y-4">
-        <h2 className="text-2xl font-semibold text-gray-800">Crime Weight Maps</h2>
+    <div className="flex flex-col overflow-auto" style={{ height: "calc(120vh - 56px)" }}>
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 p-4 space-y-3">
+        <h2 className="text-2xl font-semibold text-gray-800">Crime Risk Map (Dammam) — 2025</h2>
         <p className="text-sm text-gray-600">
-          Select a neighbourhood in Dammam to view its location and crime weight visualization.
+          Map shows neighborhood risk as circles. You can color by Formula risk or ML prediction.
         </p>
-        
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <div className="flex-1 w-full sm:w-auto">
-            <label className="block text-sm font-medium mb-1 text-gray-700">
-              Select Neighbourhood
-            </label>
-            <select
-              onChange={handleNeighbourhoodSelect}
-              value={selectedNeighbourhood?.name || ''}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
-            >
-              <option value="">Choose a neighbourhood...</option>
-              {neighbourhoods.map((n) => (
-                <option key={n.id} value={n.name}>
-                  {n.name}
-                </option>
-              ))}
-            </select>
-          </div>
 
-          {selectedNeighbourhood && (
-            <button
-              onClick={handleShowCrimeWeight}
-              disabled={loadingWeight}
-              className="px-6 py-2 mt-6 sm:mt-0 bg-primary text-white rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
-            >
-              {loadingWeight ? 'Loading...' : 'Show Crime Weight'}
-            </button>
-          )}
+        {/* Toggle */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-sm text-gray-700 font-medium">Color by:</span>
+
+          <button
+            onClick={() => setMode("formula")}
+            className={`px-4 py-2 rounded-lg border transition ${
+              mode === "formula" ? "bg-gray-200 border-gray-300" : "bg-white border-gray-300"
+            }`}
+          >
+            Formula
+          </button>
+
+          <button
+            onClick={() => setMode("ml")}
+            className={`px-4 py-2 rounded-lg border transition ${
+              mode === "ml" ? "bg-gray-200 border-gray-300" : "bg-white border-gray-300"
+            }`}
+          >
+            ML Prediction
+          </button>
         </div>
 
-        {/* Crime Weight Legend */}
-        {showCrimeWeight && crimeData && (
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h3 className="font-semibold text-gray-800">
-                  {selectedNeighbourhood.name}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Crime Weight: <span className="font-semibold">{crimeData.crime_weight}/10</span> ({getWeightLabel(crimeData.crime_weight)})
-                </p>
-                {crimeData.main_category && (
-                  <p className="text-sm text-gray-600">
-                    Most Common: {crimeData.main_category} ({crimeData.crime_count} cases)
-                  </p>
-                )}
-              </div>
-              
-              <div className="flex gap-2 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 rounded-full bg-[#22c55e]"></div>
-                  <span>Low (3)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 rounded-full bg-[#06b6d4]"></div>
-                  <span>H-Low (4)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 rounded-full bg-[#eab308]"></div>
-                  <span>L-Med (5-6)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 rounded-full bg-[#f97316]"></div>
-                  <span>H-Med (7-8)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 rounded-full bg-[#ef4444]"></div>
-                  <span>High (9-10)</span>
-                </div>
-              </div>
-            </div>
+        {/* Legend */}
+        <div className="flex flex-wrap gap-3 text-xs text-gray-700">
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-green-500"></div> Safe
           </div>
-        )}
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-yellow-400"></div> Moderate
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-orange-500"></div> Dangerous
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full bg-red-500"></div> Very Dangerous
+          </div>
+        </div>
       </div>
 
-      {/* Map Container
-      // MapContainer: Leaflet map component centered on Dammam
-      // Circle: Visual indicator of crime weight with 1km radius
-      // Color and opacity change based on crime weight
-      // Popup shows detailed information when clicked
-      //  */}
-      
-      <div className="relative" style={{ height: '600px', minHeight: '400px' }}>
-        <MapContainer
-          center={defaultCenter}
-          zoom={12}
-          className="h-full w-full"
-          zoomControl={true}
-        >
+      {/* Map */}
+      <div className="relative" style={{ height: "650px", minHeight: "450px" }}>
+        <MapContainer center={defaultCenter} zoom={11} className="h-full w-full" zoomControl={true}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          
-          <MapController center={selectedNeighbourhood ? mapCenter : null} />
 
-          {/* Show circle when crime weight is displayed */}
-          {showCrimeWeight && crimeData && selectedNeighbourhood && (
-            <Circle
-              center={[selectedNeighbourhood.latitude, selectedNeighbourhood.longitude]}
-              radius={1000} // 1km radius
+          {points.map((p) => (
+            <CircleMarker
+              key={p.id}
+              center={[p.lat, p.lng]}
+              radius={10}
               pathOptions={{
-                color: getWeightColor(crimeData.crime_weight),
-                fillColor: getWeightColor(crimeData.crime_weight),
-                fillOpacity: 0.4,
-                weight: 3,
+                color: labelColor(p.displayLabel),
+                fillColor: labelColor(p.displayLabel),
+                fillOpacity: 0.45,
+                weight: 2,
               }}
             >
               <Popup>
-                <div className="text-sm">
-                  <h3 className="font-semibold">{selectedNeighbourhood.name}</h3>
-                  <p className="mt-1">Crime Weight: {crimeData.crime_weight}/10</p>
-                  <p>Risk Level: {getWeightLabel(crimeData.crime_weight)}</p>
-                  {crimeData.main_category && (
-                    <p className="mt-1 text-xs text-gray-600">
-                      Main Category: {crimeData.main_category}
-                    </p>
-                  )}
+                <div className="text-sm" style={{ minWidth: 220 }}>
+                  <div className="font-semibold">{p.name}</div>
+
+                  <div className="mt-2">
+                    <div>
+                      <b>Formula:</b> {niceLabel(p.formula_label)}
+                    </div>
+                    <div>
+                      <b>ML:</b> {niceLabel(p.predicted_label)}
+                    </div>
+                    {p.confidence != null && (
+                      <div>
+                        <b>Confidence:</b> {(p.confidence * 100).toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-2 text-xs text-gray-700">
+                    <div>
+                      <b>R1:</b> {p.r1}
+                    </div>
+                    <div>
+                      <b>R2:</b> {p.r2}
+                    </div>
+                    <div>
+                      <b>R:</b> {p.r}
+                    </div>
+                  </div>
                 </div>
               </Popup>
-            </Circle>
-          )}
+            </CircleMarker>
+          ))}
         </MapContainer>
       </div>
     </div>

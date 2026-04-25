@@ -1,7 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthContext.jsx';
-import toast from 'react-hot-toast';
+import React, { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,288 +7,403 @@ import {
   BarElement,
   LineElement,
   ArcElement,
+  PointElement,
   Tooltip,
   Legend,
-} from 'chart.js';
-import { Bar, Line, Pie } from 'react-chartjs-2';
+} from "chart.js";
+import { Bar, Line, Pie } from "react-chartjs-2";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, ArcElement, Tooltip, Legend);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  ArcElement,
+  PointElement,
+  Tooltip,
+  Legend
+);
+
+const API = import.meta.env.VITE_API_BASE_URL;
+
+const SEASONS = [
+  { key: "ramadan", label: "Ramadan", windows: [{ start: "02-01", end: "03-31" }] },
+  { key: "hajj", label: "Hajj", windows: [{ start: "05-15", end: "06-15" }] },
+  { key: "summer", label: "Summer", windows: [{ start: "06-15", end: "08-31" }] },
+  {
+    key: "school",
+    label: "School Season",
+    windows: [
+      { start: "09-01", end: "01-31" },
+      { start: "04-01", end: "04-30" },
+    ],
+  },
+];
+
+function downloadCSV(filename, rows) {
+  if (!rows?.length) return;
+
+  const headers = Object.keys(rows[0]);
+  const escape = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return `"${s.replaceAll('"', '""')}"`;
+    }
+    return s;
+  };
+
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => escape(r[h])).join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  URL.revokeObjectURL(url);
+}
+
+async function downloadFileFromEndpoint(url, filename, mimeHint) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const mime = mimeHint || blob.type || "application/octet-stream";
+  const finalBlob = blob.type ? blob : new Blob([blob], { type: mime });
+
+  const fileUrl = URL.createObjectURL(finalBlob);
+  const a = document.createElement("a");
+  a.href = fileUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(fileUrl);
+}
 
 const ReportPage = () => {
-  const { user, token } = useAuth();
-  const role = user?.role;
-  const allowedRoles = ['administrator', 'ministry_of_interior'];
-
-  const [reportType, setReportType] = useState('crime');
-  const [dataRows, setDataRows] = useState([]);
+  const [year, setYear] = useState(2025);
+  const [seasonKey, setSeasonKey] = useState("ramadan");
+  const [mode, setMode] = useState("ml");
+  const [seasonPayload, setSeasonPayload] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  if (!allowedRoles.includes(role)) {
-    return <Navigate to="/crime" replace />;
-  }
-// Fetches either crime or general report data based on reportType
-// Endpoint changes based on selected report type
-// Requires authentication token in headers
-  const loadReport = async () => {
+  const season = useMemo(
+    () => SEASONS.find((s) => s.key === seasonKey) || SEASONS[0],
+    [seasonKey]
+  );
+
+  const generateReport = async () => {
     setLoading(true);
     try {
-      const endpoint = reportType === 'crime' ? '/api/reports/crime' : '/api/reports/general';
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}${endpoint}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const url = `${API}/api/reports/season?year=${year}&season=${seasonKey}&mode=${mode}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed /api/reports/season (${res.status})`);
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load report');
-      }
-      setDataRows(data);
+      setSeasonPayload(data);
+      toast.success("Season report generated");
     } catch (err) {
-      console.error('Failed to load report', err);
-      toast.error(err.message || 'Failed to load report');
+      console.error(err);
+      toast.error(err.message || "Failed to generate report");
     } finally {
       setLoading(false);
     }
   };
-// Requests PDF report from backend
-// mode='view': opens PDF in new tab
-// mode='download': triggers file download
-// Creates temporary URL for blob data, then cleans up
-  const handleExport = async (mode) => {
-    try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/reports/export?type=${reportType}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Failed to export report');
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
 
-      if (mode === 'view') {
-        window.open(url, '_blank');
-      } else {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${reportType}_report.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
-    } catch (err) {
-      console.error('Export failed', err);
-      toast.error(err.message || 'Failed to export report');
-    }
-  };
+  useEffect(() => {
+    generateReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const labels = useMemo(() => dataRows.map((r) => r.neighbourhood_name), [dataRows]);
-// Prepares data for three different chart types: bar, pie, and line
-// Each chart shows different metrics based on report type
-// Crime report: focuses on population and unemployment
-// General report: focuses on crime weight analysis
-  const barData = useMemo(() => {
-    if (reportType === 'crime') {
-      return {
-        labels,
-        datasets: [
-          {
-            label: 'Population (thousands)',
-            data: dataRows.map((r) => Number(r.population) || 0),
-            backgroundColor: '#4f46e5',
-          },
-        ],
-      };
-    }
+  const rows = useMemo(() => {
+    return Array.isArray(seasonPayload?.rows) ? seasonPayload.rows : [];
+  }, [seasonPayload]);
+
+  const kpis = useMemo(() => {
+    const total = rows.length;
+    const avgR =
+      seasonPayload?.avg_r != null
+        ? Number(seasonPayload.avg_r || 0)
+        : total > 0
+        ? rows.reduce((s, x) => s + (Number(x.r) || 0), 0) / total
+        : 0;
+
+    const labelCounts = seasonPayload?.label_counts || {};
+
+    const top =
+      (Array.isArray(seasonPayload?.top_risk) && seasonPayload.top_risk[0])
+        ? seasonPayload.top_risk[0]
+        : [...rows].sort((a, b) => (Number(b.r) || 0) - (Number(a.r) || 0))[0];
+
+    return {
+      total,
+      avgR,
+      labelCounts,
+      topName: top?.name || "-",
+      topR: top?.r != null ? Number(top.r).toFixed(2) : "-",
+    };
+  }, [rows, seasonPayload]);
+
+  const mlLabelPie = useMemo(() => {
+    const counts = kpis.labelCounts || {};
+    const labels = Object.keys(counts);
+    const values = labels.map((l) => counts[l]);
+
     return {
       labels,
-      datasets: [
-        {
-          label: 'Avg Crime Weight',
-          data: dataRows.map((r) => Number(r.avg_crime_weight) || 0),
-          backgroundColor: '#f97316',
-        },
-      ],
-    };
-  }, [dataRows, labels, reportType]);
-
-  const pieData = useMemo(() => {
-    const counts = dataRows.reduce((acc, r) => {
-      const key = r.main_crime_category || 'None';
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
-    const pLabels = Object.keys(counts);
-    const values = pLabels.map((k) => counts[k]);
-    return {
-      labels: pLabels,
       datasets: [
         {
           data: values,
-          backgroundColor: ['#1d4ed8', '#f97316', '#22c55e', '#ef4444', '#0ea5e9', '#a855f7'],
+          backgroundColor: ["#22c55e", "#eab308", "#f97316", "#ef4444", "#94a3b8"],
         },
       ],
     };
-  }, [dataRows]);
+  }, [kpis]);
 
-  const lineData = useMemo(() => {
-    if (reportType === 'crime') {
-      return {
-        labels,
-        datasets: [
-          {
-            label: 'Unemployment %',
-            data: dataRows.map((r) => Number(r.unemployment_percent) || 0),
-            borderColor: '#10b981',
-            backgroundColor: 'rgba(16,185,129,0.2)',
-            tension: 0.3,
-          },
-        ],
-      };
-    }
+  const topRiskBar = useMemo(() => {
+    const top = [...rows]
+      .sort((a, b) => (Number(b.r) || 0) - (Number(a.r) || 0))
+      .slice(0, 12);
+
     return {
-      labels,
+      labels: top.map((x) => x.name),
       datasets: [
         {
-          label: 'Avg Crime Weight',
-          data: dataRows.map((r) => Number(r.avg_crime_weight) || 0),
-          borderColor: '#ef4444',
-          backgroundColor: 'rgba(239,68,68,0.2)',
-          tension: 0.3,
+          label: "Risk Score (R)",
+          data: top.map((x) => Number(x.r) || 0),
+          backgroundColor: "#3c81f6",
         },
       ],
     };
-  }, [dataRows, labels, reportType]);
+  }, [rows]);
+
+  const riskVsDemoLine = useMemo(() => {
+    const sorted = [...rows].sort((a, b) => (Number(a.r) || 0) - (Number(b.r) || 0));
+    return {
+      labels: sorted.map((x) => x.name),
+      datasets: [
+        {
+          label: "Risk (R)",
+          data: sorted.map((x) => Number(x.r) || 0),
+          borderColor: "#ef4444",
+          backgroundColor: "rgba(239,68,68,0.15)",
+          tension: 0.25,
+        },
+        {
+          label: "Unemployment Score",
+          data: sorted.map((x) => Number(x?.unemployment_score) || 0),
+          borderColor: "#10b981",
+          backgroundColor: "rgba(16,185,129,0.10)",
+          tension: 0.25,
+        },
+        {
+          label: "Income Score",
+          data: sorted.map((x) => Number(x?.income_score) || 0),
+          borderColor: "#f59e0b",
+          backgroundColor: "rgba(245,158,11,0.10)",
+          tension: 0.25,
+        },
+      ],
+    };
+  }, [rows]);
+
+  const tableRows = useMemo(() => {
+    return rows.map((r) => ({
+      neighborhood: r.name,
+      r1: Number(r.r1 || 0).toFixed(2),
+      r2: Number(r.r2 || 0).toFixed(2),
+      R: Number(r.r || 0).toFixed(2),
+      formula_label: r.formula_label || "-",
+      ml_label: r.predicted_label || "-",
+      confidence: r.confidence != null ? (Number(r.confidence) * 100).toFixed(1) + "%" : "-",
+      unemployment_score: r?.unemployment_score ?? "-",
+      income_score: r?.income_score ?? "-",
+      vitality_score: r?.vitality_score ?? "-",
+    }));
+  }, [rows]);
+
+  const downloadPDF = async () => {
+    try {
+      const url = `${API}/api/reports/export?year=${year}&season=${seasonKey}&mode=${mode}`;
+      const filename = `seasonal_report_${year}_${seasonKey}_${mode}.pdf`;
+      await downloadFileFromEndpoint(url, filename, "application/pdf");
+      toast.success("PDF downloaded");
+    } catch (e) {
+      console.error(e);
+      toast.error(e.message || "PDF download failed");
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Generate Report</h2>
+        <h2 className="text-2xl font-semibold">Seasonal Risk Report</h2>
       </div>
 
       <div className="bg-white rounded-lg shadow p-4 flex flex-col md:flex-row gap-4 items-center">
-        <div className="flex-1">
-          <label className="block text-sm font-medium mb-1">Report Type</label>
+        <div className="w-full md:w-56">
+          <label className="block text-sm font-medium mb-1">Year</label>
+          <input
+            type="number"
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="w-full border border-gray-300 rounded px-3 py-2"
+          />
+        </div>
+
+        <div className="flex-1 w-full">
+          <label className="block text-sm font-medium mb-1">Season</label>
           <select
-            value={reportType}
-            onChange={(e) => setReportType(e.target.value)}
+            value={seasonKey}
+            onChange={(e) => setSeasonKey(e.target.value)}
             className="w-full border border-gray-300 rounded px-3 py-2"
           >
-            <option value="crime">Crime Report</option>
-            <option value="general">General Analysis Report</option>
+            {SEASONS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+
+          <p className="text-xs text-gray-500 mt-1">
+            Windows: {season.windows.map((w) => `${w.start} → ${w.end}`).join("  |  ")}
+          </p>
+        </div>
+
+        <div className="w-full md:w-56">
+          <label className="block text-sm font-medium mb-1">Mode</label>
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2"
+          >
+            <option value="ml">ML</option>
+            <option value="formula">Formula</option>
           </select>
         </div>
+
         <div className="flex gap-2 items-end">
           <button
             type="button"
-            onClick={loadReport}
+            onClick={generateReport}
             className="px-4 py-2 rounded-full bg-primary text-white hover:opacity-90"
           >
-            {loading ? 'Generating...' : 'Generate Report'}
+            {loading ? "Generating..." : "Generate"}
           </button>
+
           <button
             type="button"
-            onClick={() => handleExport('download')}
+            onClick={() => downloadCSV(`seasonal_report_${year}_${seasonKey}_${mode}.csv`, tableRows)}
             className="px-4 py-2 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100"
           >
-            Download Report
+            Download CSV
           </button>
+
           <button
             type="button"
-            onClick={() => handleExport('view')}
+            onClick={downloadPDF}
             className="px-4 py-2 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100"
           >
-            View Report
+            Download PDF
           </button>
         </div>
       </div>
 
-      {dataRows.length > 0 && (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500">Neighborhoods</div>
+          <div className="text-3xl font-semibold">{kpis.total}</div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500">Average Risk (R)</div>
+          <div className="text-3xl font-semibold">{Number(kpis.avgR || 0).toFixed(2)}</div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500">Highest Risk</div>
+          <div className="text-lg font-semibold">{kpis.topName}</div>
+          <div className="text-sm text-gray-600">R: {kpis.topR}</div>
+        </div>
+      </div>
+
+      {rows.length > 0 && (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-4 flex flex-col items-center">
-              <h3 className="font-medium mb-2">Crime Categories Distribution</h3>
+              <h3 className="font-medium mb-2">Label Distribution</h3>
               <div className="w-full h-80">
-                <Pie 
-                  data={pieData}
+                <Pie
+                  data={mlLabelPie}
                   options={{
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                      legend: {
-                        position: 'left',
-                        align: 'center',
-                        labels: {
-                          boxWidth: 15,
-                          padding: 10,
-                          font: {
-                            size: 11
-                          }
-                        }
-                      }
-                    }
+                    plugins: { legend: { position: "left" } },
                   }}
                 />
               </div>
             </div>
+
             <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-medium mb-2">
-                {reportType === 'crime' ? 'Population per Neighbourhood' : 'Avg Crime Weight per Neighbourhood'}
-              </h3>
+              <h3 className="font-medium mb-2">Top Risk Neighborhoods</h3>
               <div className="w-full h-80">
-                <Bar data={barData} options={{ responsive: true, maintainAspectRatio: false }} />
+                <Bar data={topRiskBar} options={{ responsive: true, maintainAspectRatio: false }} />
               </div>
             </div>
           </div>
 
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="font-medium mb-2">
-              {reportType === 'crime' ? 'Unemployment vs Neighbourhood' : 'Avg Crime Weight Trend'}
-            </h3>
-            <div className="w-full h-80">
-              <Line data={lineData} options={{ responsive: true, maintainAspectRatio: false }} />
+            <h3 className="font-medium mb-2">Risk vs Demographics (sorted by Risk)</h3>
+            <div className="w-full h-96">
+              <Line
+                data={riskVsDemoLine}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { position: "bottom" } },
+                  scales: { y: { beginAtZero: true } },
+                }}
+              />
             </div>
           </div>
 
           <div className="bg-white rounded-lg shadow p-4 overflow-x-auto">
-            <h3 className="font-medium mb-2">Report Table</h3>
+            <h3 className="font-medium mb-2">Season Report Table</h3>
             <table className="min-w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-gray-100">
-                  <th className="border px-2 py-1">Neighbourhood</th>
-                  <th className="border px-2 py-1">Population</th>
-                  <th className="border px-2 py-1">Income Level</th>
-                  <th className="border px-2 py-1">Unemployment %</th>
-                  <th className="border px-2 py-1">Main Crime Category</th>
-                  {reportType === 'crime' && (
-                    <>
-                      <th className="border px-2 py-1">Univ. Edu %</th>
-                      <th className="border px-2 py-1">Unmarried 30+ %</th>
-                    </>
-                  )}
-                  {reportType === 'general' && (
-                    <th className="border px-2 py-1">Avg Crime Weight</th>
-                  )}
+                  <th className="border px-2 py-1">Neighborhood</th>
+                  <th className="border px-2 py-1">R1</th>
+                  <th className="border px-2 py-1">R2</th>
+                  <th className="border px-2 py-1">R</th>
+                  <th className="border px-2 py-1">Formula Label</th>
+                  <th className="border px-2 py-1">ML Label</th>
+                  <th className="border px-2 py-1">Confidence</th>
+                  <th className="border px-2 py-1">Unemp Score</th>
+                  <th className="border px-2 py-1">Income Score</th>
+                  <th className="border px-2 py-1">Vitality Score</th>
                 </tr>
               </thead>
               <tbody>
-                {dataRows.map((r) => (
-                  <tr key={r.neighbourhood_name} className="border-b">
-                    <td className="border px-2 py-1">{r.neighbourhood_name}</td>
-                    <td className="border px-2 py-1">{Number(r.population).toFixed(3)}</td>
-                    <td className="border px-2 py-1">{r.income_level}</td>
-                    <td className="border px-2 py-1">{Number(r.unemployment_percent || 0).toFixed(1)}</td>
-                    <td className="border px-2 py-1">{r.main_crime_category || 'N/A'}</td>
-                    {reportType === 'crime' && (
-                      <>
-                        <td className="border px-2 py-1">{Number(r.university_education_percent || 0).toFixed(1)}</td>
-                        <td className="border px-2 py-1">{Number(r.unmarried_over_30_percent || 0).toFixed(1)}</td>
-                      </>
-                    )}
-                    {reportType === 'general' && (
-                      <td className="border px-2 py-1">{Number(r.avg_crime_weight || 0).toFixed(2)}</td>
-                    )}
+                {tableRows.map((r) => (
+                  <tr key={r.neighborhood} className="border-b">
+                    <td className="border px-2 py-1">{r.neighborhood}</td>
+                    <td className="border px-2 py-1">{r.r1}</td>
+                    <td className="border px-2 py-1">{r.r2}</td>
+                    <td className="border px-2 py-1 font-semibold">{r.R}</td>
+                    <td className="border px-2 py-1">{r.formula_label}</td>
+                    <td className="border px-2 py-1">{r.ml_label}</td>
+                    <td className="border px-2 py-1">{r.confidence}</td>
+                    <td className="border px-2 py-1">{r.unemployment_score}</td>
+                    <td className="border px-2 py-1">{r.income_score}</td>
+                    <td className="border px-2 py-1">{r.vitality_score}</td>
                   </tr>
                 ))}
               </tbody>
