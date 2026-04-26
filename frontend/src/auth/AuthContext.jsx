@@ -12,7 +12,6 @@ export function AuthProvider({ children }) {
     () => ({ user: null, token: null, login: () => {}, logout: () => {} }),
     []
   );
-
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

@@ -11,7 +11,7 @@ const CrimeServices = () => {
         if (user) {
             navigate(path);
         } else {
-            navigate('/login');
+            navigate('/crime');
         }
     };
 

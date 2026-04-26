@@ -11,3 +11,6 @@ __pycache__/
 
 # Alembic cache
 migrations/versions/__pycache__/
+
+# ML model - generated at runtime, do not commit
+risk_model.joblib

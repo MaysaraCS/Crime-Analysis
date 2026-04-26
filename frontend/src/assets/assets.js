@@ -32,13 +32,7 @@ export const CrimeServicesData = [
         bg: { from: '#B153EA', to: '#E549A3' },
         path: '/'
     },
-    {
-        title: 'Role-Based Data Management',
-        description: 'Allows each user type to securely insert, update, or retrieve crime information according to their authority. ',
-        Icon: UserCheck,
-        bg: { from: '#20C363', to: '#11B97E' },
-        path: '/'
-    },
+    
     {
         title: 'Automated Crime Reporting',
         description: 'Generates downloadable analytical reports with visual charts that summarize crime patterns and trends.',

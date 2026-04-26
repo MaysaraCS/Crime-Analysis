@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Numeric
+from sqlalchemy import Column, Integer, String, Numeric, Boolean
 from database import Base
+
 
 class Neighborhood(Base):
     __tablename__ = "neighborhoods"
@@ -16,3 +17,6 @@ class Neighborhood(Base):
     unemployment_score = Column(Integer, nullable=False)
     income_score = Column(Integer, nullable=False)
     vitality_score = Column(Integer, nullable=False)
+
+    # Added in Query03 migration
+    is_core = Column(Boolean, nullable=False, default=True, server_default="true")
