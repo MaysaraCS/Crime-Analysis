@@ -22,10 +22,10 @@ ChartJS.register(
 const API = import.meta.env.VITE_API_BASE_URL;
 
 const SEASONS = [
-  { key: "ramadan", label: "Ramadan",       months: "Feb – Mar"           },
-  { key: "hajj",    label: "Hajj",          months: "May – Jun"           },
-  { key: "summer",  label: "Summer",        months: "Jun – Aug"           },
-  { key: "school",  label: "School Season", months: "Sep – Jan + Apr"     },
+  { key: "ramadan", label: "Ramadan",       months: "Feb – Mar"       },
+  { key: "hajj",    label: "Hajj",          months: "May – Jun"       },
+  { key: "summer",  label: "Summer",        months: "Jun – Aug"       },
+  { key: "school",  label: "School Season", months: "Sep – Jan + Apr" },
 ];
 
 const LABEL_COLORS = {
@@ -81,7 +81,7 @@ const ReportPage = () => {
   const [seasonPayload, setSeasonPayload] = useState(null);
   const [loading,       setLoading]       = useState(false);
 
-  // Global neighbourhood checklist (applied to all charts + table)
+  // Global neighbourhood checklist (applied to all charts + table + PDF + CSV)
   const [selectedGlobal, setSelectedGlobal] = useState([]);
 
   // Per-chart checklists
@@ -101,7 +101,7 @@ const ReportPage = () => {
       if (!res.ok) throw new Error(`Report API failed (${res.status})`);
       const data = await res.json();
       setSeasonPayload(data);
-      // Reset per-chart filters when new report loads
+      setSelectedGlobal([]);
       setFilterPie([]); setFilterBar([]); setFilterLine([]);
       toast.success("Report generated");
     } catch (err) {
@@ -111,7 +111,6 @@ const ReportPage = () => {
     }
   };
 
-  // Auto-generate on mount
   useEffect(() => { generateReport(); }, []); // eslint-disable-line
 
   const allRows  = useMemo(() => (Array.isArray(seasonPayload?.rows) ? seasonPayload.rows : []), [seasonPayload]);
@@ -188,26 +187,33 @@ const ReportPage = () => {
     };
   }, [globalRows, filterLine]);
 
-  // ─── Table ───────────────────────────────────────────────────────────────
+  // ─── Table rows (matches exactly what PDF will show) ─────────────────────
   const tableRows = useMemo(() =>
-    globalRows.map((r) => ({
-      neighborhood:    r.name,
-      r1:              Number(r.r1 || 0).toFixed(2),
-      r2:              Number(r.r2 || 0).toFixed(2),
-      R:               Number(r.r  || 0).toFixed(2),
-      formula_label:   r.formula_label  || "—",
-      ml_label:        r.predicted_label || "—",
-      confidence:      r.confidence != null ? (Number(r.confidence) * 100).toFixed(1) + "%" : "—",
-      unemployment_score: r?.unemployment_score ?? "—",
-      income_score:    r?.income_score    ?? "—",
-      vitality_score:  r?.vitality_score  ?? "—",
-    })),
+    globalRows
+      .sort((a, b) => (Number(b.r) || 0) - (Number(a.r) || 0))
+      .map((r) => ({
+        neighborhood:       r.name,
+        r1:                 Number(r.r1 || 0).toFixed(2),
+        r2:                 Number(r.r2 || 0).toFixed(2),
+        R:                  Number(r.r  || 0).toFixed(2),
+        formula_label:      r.formula_label   || "—",
+        ml_label:           r.predicted_label || "—",
+        confidence:         r.confidence != null ? (Number(r.confidence) * 100).toFixed(1) + "%" : "—",
+        unemployment_score: r?.unemployment_score ?? "—",
+        income_score:       r?.income_score        ?? "—",
+        vitality_score:     r?.vitality_score      ?? "—",
+      })),
   [globalRows]);
 
   const downloadPDF = async () => {
     try {
+      // Pass the globally-selected neighbourhoods to the backend so the PDF matches
+      const neighbourhoodParam =
+        selectedGlobal.length > 0
+          ? `&neighbourhoods=${encodeURIComponent(selectedGlobal.join(","))}`
+          : "";
       await downloadPDFFile(
-        `${API}/api/reports/export?year=${year}&season=${seasonKey}&mode=${mode}`,
+        `${API}/api/reports/export?year=${year}&season=${seasonKey}&mode=${mode}${neighbourhoodParam}`,
         `seasonal_report_${year}_${seasonKey}_${mode}.pdf`
       );
       toast.success("PDF downloaded");
@@ -415,7 +421,7 @@ const ReportPage = () => {
             <div className="mb-3">
               <h3 className="font-semibold text-gray-700">Detailed Report Table</h3>
               <p className="text-xs text-gray-400 mt-0.5">
-                {tableRows.length} neighbourhood(s) shown
+                {tableRows.length} neighbourhood(s) shown · sorted by R descending
               </p>
             </div>
             <table className="min-w-full text-xs border-collapse">

@@ -10,9 +10,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
 )
@@ -24,39 +24,28 @@ router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 MODEL_PATH = "risk_model.joblib"
 
-# ✅ Month-granular seasons (DB is month based)
 SEASONS = {
-    "ramadan": [2, 3],                 # Feb–Mar
-    "hajj": [5, 6],                    # May–Jun (mid-month not possible with month-only data)
-    "summer": [6, 7, 8],               # Jun–Aug
-    "school": [9, 10, 11, 12, 1, 4],   # Sep–Jan + Apr
+    "ramadan": [2, 3],
+    "hajj":    [5, 6],
+    "summer":  [6, 7, 8],
+    "school":  [9, 10, 11, 12, 1, 4],
 }
 
-# ✅ Fixed label order for charts/tables
 LABEL_ORDER = ["safe", "moderate", "dangerous", "very_dangerous"]
 
+# ── Fixed threshold labelling (matching the images) ───────────────────────────
+def label_by_threshold(r_value: float) -> str:
+    if r_value > 80:
+        return "very_dangerous"
+    if r_value >= 60:
+        return "dangerous"
+    if r_value >= 40:
+        return "moderate"
+    return "safe"
 
-def _label_quantiles(values: pd.Series) -> pd.Series:
-    if values is None or len(values) == 0:
-        return pd.Series([], dtype=str)
 
-    if values.nunique(dropna=True) <= 1:
-        return pd.Series(["moderate"] * len(values), index=values.index)
-
-    q1 = values.quantile(0.25)
-    q2 = values.quantile(0.50)
-    q3 = values.quantile(0.75)
-
-    def f(v: float) -> str:
-        if v >= q3:
-            return "very_dangerous"
-        if v >= q2:
-            return "dangerous"
-        if v >= q1:
-            return "moderate"
-        return "safe"
-
-    return values.apply(f)
+def _label_series_by_threshold(values: pd.Series) -> pd.Series:
+    return values.apply(label_by_threshold)
 
 
 def _make_pie(labels, values, title: str) -> BytesIO:
@@ -110,7 +99,6 @@ def _build_season_df(db: Session, year: int, season: str) -> pd.DataFrame:
 
     months = SEASONS[season]
 
-    # 1) Neighborhood demographics
     with engine.connect() as conn:
         r = conn.execute(text("""
             SELECT
@@ -130,7 +118,6 @@ def _build_season_df(db: Session, year: int, season: str) -> pd.DataFrame:
         """))
         ndf = pd.DataFrame(r.fetchall(), columns=r.keys())
 
-    # 2) Seasonal crime totals per neighborhood + classification
     with engine.connect() as conn:
         r = conn.execute(
             text("""
@@ -147,13 +134,11 @@ def _build_season_df(db: Session, year: int, season: str) -> pd.DataFrame:
         )
         cdf = pd.DataFrame(r.fetchall(), columns=r.keys())
 
-    # 3) Classification weights
     with engine.connect() as conn:
         r = conn.execute(text("SELECT id AS classification_id, weight FROM crime_classifications ORDER BY id"))
         wdf = pd.DataFrame(r.fetchall(), columns=r.keys())
     wmap = dict(zip(wdf["classification_id"], wdf["weight"]))
 
-    # Pivot to crime_cX columns
     pivot = cdf.pivot_table(
         index="neighborhood_id",
         columns="classification_id",
@@ -165,18 +150,6 @@ def _build_season_df(db: Session, year: int, season: str) -> pd.DataFrame:
 
     df = ndf.merge(pivot, on="neighborhood_id", how="left").fillna(0)
 
-    total_city_crimes = float(cdf["season_count"].sum()) if len(cdf) else 1.0
-
-    def weighted_sum(row) -> float:
-        s = 0.0
-        for cid, w in wmap.items():
-            col = f"crime_c{int(cid)}"
-            s += float(row.get(col, 0.0)) * float(w)
-        return s
-
-    df["weighted_sum"] = df.apply(weighted_sum, axis=1)
-    df["r1"] = (df["weighted_sum"] / total_city_crimes) * 20.0
-
     demo_cols = [
         "population_density_score",
         "divorce_ratio_score",
@@ -186,10 +159,33 @@ def _build_season_df(db: Session, year: int, season: str) -> pd.DataFrame:
         "income_score",
         "vitality_score",
     ]
+
+    def weighted_sum(row) -> float:
+        s = 0.0
+        for cid, w in wmap.items():
+            col = f"crime_c{int(cid)}"
+            s += float(row.get(col, 0.0)) * float(w)
+        return s
+
+    df["weighted_sum"] = df.apply(weighted_sum, axis=1)
+
+    # ── R1: normalize against the neighborhood with the highest weighted crime
+    #        sum so that R1 ∈ [0, 100]
+    max_ws = df["weighted_sum"].max()
+    if max_ws > 0:
+        df["r1"] = (df["weighted_sum"] / max_ws) * 100.0
+    else:
+        df["r1"] = 0.0
+
+    # ── R2: mean of 7 demographic scores (each 1/3/5) scaled so that
+    #        score=1 → 20, score=3 → 60, score=5 → 100  (i.e. × 20)
     df["r2"] = df[demo_cols].mean(axis=1) * 20.0
+
+    # ── R: simple average of R1 and R2
     df["r"] = (df["r1"] + df["r2"]) / 2.0
 
-    df["formula_label"] = _label_quantiles(df["r"])
+    # ── Formula label uses fixed thresholds from the project spec
+    df["formula_label"] = _label_series_by_threshold(df["r"])
 
     return df
 
@@ -206,7 +202,6 @@ def _apply_ml_predictions(df: pd.DataFrame) -> pd.DataFrame:
     df["predicted_label"] = None
     df["confidence"] = None
     df["probabilities"] = None
-    df["ml_score"] = None
 
     if hasattr(model, "predict_proba"):
         probs = model.predict_proba(X)
@@ -219,12 +214,6 @@ def _apply_ml_predictions(df: pd.DataFrame) -> pd.DataFrame:
             {classes[i]: float(p[i]) for i in range(len(classes))}
             for p in probs
         ]
-
-        severity_index = {"safe": 0, "moderate": 1, "dangerous": 2, "very_dangerous": 3}
-        df["ml_score"] = df["probabilities"].apply(
-            lambda pmap: sum(float(pmap.get(k, 0.0)) * v for k, v in severity_index.items())
-        )
-
     else:
         preds = model.predict(X)
         df["predicted_label"] = [str(p) for p in preds]
@@ -258,7 +247,6 @@ def season_report(
         label_col = "formula_label"
 
     label_counts = _counts_in_order(df[label_col])
-
     top = df.sort_values("r", ascending=False).head(10)[["name", "r"]]
 
     table_cols = [
@@ -291,6 +279,7 @@ def export_season_pdf(
     year: int = Query(2025),
     season: str = Query("ramadan"),
     mode: str = Query("ml", description="ml or formula"),
+    neighbourhoods: str = Query("", description="Comma-separated neighbourhood names to include; empty = all"),
     db: Session = Depends(get_db),
 ):
     df = _build_season_df(db, year, season)
@@ -305,6 +294,14 @@ def export_season_pdf(
         df = _apply_ml_predictions(df)
         title_mode = "ML"
         label_col = "predicted_label"
+
+    # ── Apply neighbourhood filter (mirrors what the frontend does) ───────────
+    if neighbourhoods.strip():
+        selected = [n.strip() for n in neighbourhoods.split(",") if n.strip()]
+        df = df[df["name"].isin(selected)].copy()
+
+    if df.empty:
+        raise HTTPException(status_code=404, detail="No data found for the given filters.")
 
     label_counts_dict = _counts_in_order(df[label_col])
 
@@ -330,8 +327,16 @@ def export_season_pdf(
         y_label="Risk (R)"
     )
 
+    # ── Build PDF (landscape for wide table) ─────────────────────────────────
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+        leftMargin=0.4 * inch,
+        rightMargin=0.4 * inch,
+    )
     story = []
     styles = getSampleStyleSheet()
 
@@ -340,6 +345,7 @@ def export_season_pdf(
     story.append(Paragraph(f"<b>Year:</b> {year}", styles["Normal"]))
     story.append(Paragraph(f"<b>Season:</b> {season} (months: {', '.join(map(str, SEASONS[season]))})", styles["Normal"]))
     story.append(Paragraph(f"<b>Mode:</b> {title_mode}", styles["Normal"]))
+    story.append(Paragraph(f"<b>Neighbourhoods shown:</b> {len(df)}", styles["Normal"]))
     story.append(Spacer(1, 0.25 * inch))
 
     story.append(Paragraph("<b>1) Label Distribution</b>", styles["Heading2"]))
@@ -349,50 +355,82 @@ def export_season_pdf(
     story.append(PageBreak())
     story.append(Paragraph("<b>2) Top Risk Neighborhoods</b>", styles["Heading2"]))
     story.append(Spacer(1, 0.1 * inch))
-    story.append(Image(bar_buf, width=6.5 * inch, height=3.5 * inch))
+    story.append(Image(bar_buf, width=7.5 * inch, height=3.5 * inch))
 
     story.append(PageBreak())
     story.append(Paragraph("<b>3) Risk Trend</b>", styles["Heading2"]))
     story.append(Spacer(1, 0.1 * inch))
-    story.append(Image(line_buf, width=6.5 * inch, height=3.5 * inch))
+    story.append(Image(line_buf, width=7.5 * inch, height=3.5 * inch))
 
     story.append(PageBreak())
-    story.append(Paragraph("<b>4) Report Table (Top 20 by Risk)</b>", styles["Heading2"]))
+    story.append(Paragraph(f"<b>4) Full Report Table ({len(df)} neighbourhoods)</b>", styles["Heading2"]))
     story.append(Spacer(1, 0.1 * inch))
 
-    show = df.sort_values("r", ascending=False).head(20).copy()
+    # ALL rows, sorted by R descending (same as frontend table)
+    show = df.sort_values("r", ascending=False).copy()
 
     cols = ["name", "r1", "r2", "r", "formula_label"]
     if mode == "ml":
         cols += ["predicted_label", "confidence"]
+    cols += ["unemployment_score", "income_score", "vitality_score"]
 
     header = [c.replace("_", " ").title() for c in cols]
     table_data = [header]
 
-    for _, r in show.iterrows():
+    LABEL_BG = {
+        "very_dangerous": colors.HexColor("#ef4444"),
+        "dangerous":      colors.HexColor("#f97316"),
+        "moderate":       colors.HexColor("#eab308"),
+        "safe":           colors.HexColor("#22c55e"),
+    }
+
+    label_cell_indices = []  # (row_idx, col_idx) for coloured cells
+    for row_i, (_, r) in enumerate(show.iterrows(), start=1):
         row = []
-        for c in cols:
+        for col_i, c in enumerate(cols):
             v = r.get(c)
             if c in {"r1", "r2", "r"}:
                 row.append(f"{float(v):.2f}")
             elif c == "confidence" and v is not None:
                 row.append(f"{float(v) * 100:.1f}%")
+            elif c in {"formula_label", "predicted_label"}:
+                row.append(str(v) if v is not None else "—")
+                label_cell_indices.append((row_i, col_i))
             else:
-                row.append(str(v))
+                row.append(str(v) if v is not None else "—")
         table_data.append(row)
 
-    table = Table(table_data, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 9),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-        ("FONTSIZE", (0, 1), (-1, -1), 8),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
-    ]))
-    story.append(table)
+    # Column widths — distribute across landscape A4 width (~10.27 inch usable)
+    usable = 10.27
+    n_cols = len(cols)
+    base_w = usable / n_cols
+    col_widths = [base_w * inch] * n_cols
+
+    tbl = Table(table_data, repeatRows=1, colWidths=col_widths)
+    tbl_style = TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 0),  colors.HexColor("#374151")),
+        ("TEXTCOLOR",    (0, 0), (-1, 0),  colors.whitesmoke),
+        ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
+        ("FONTSIZE",     (0, 0), (-1, 0),  8),
+        ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+        ("FONTSIZE",     (0, 1), (-1, -1), 7),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+        ("TOPPADDING",   (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+    ])
+
+    # Colour label cells
+    for (ri, ci) in label_cell_indices:
+        raw_label = table_data[ri][ci]
+        bg = LABEL_BG.get(raw_label, colors.HexColor("#94a3b8"))
+        tbl_style.add("BACKGROUND", (ci, ri), (ci, ri), bg)
+        tbl_style.add("TEXTCOLOR",  (ci, ri), (ci, ri), colors.white)
+        tbl_style.add("FONTNAME",   (ci, ri), (ci, ri), "Helvetica-Bold")
+
+    tbl.setStyle(tbl_style)
+    story.append(tbl)
 
     doc.build(story)
     buffer.seek(0)

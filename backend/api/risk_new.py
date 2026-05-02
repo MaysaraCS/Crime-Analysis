@@ -12,13 +12,23 @@ MODEL_PATH = "risk_model.joblib"
 LABEL_ORDER = ["safe", "moderate", "dangerous", "very_dangerous"]
 
 
+def label_by_threshold(r_value: float) -> str:
+    """Fixed threshold labels matching the project specification."""
+    if r_value > 80:
+        return "very_dangerous"
+    if r_value >= 60:
+        return "dangerous"
+    if r_value >= 40:
+        return "moderate"
+    return "safe"
+
+
 def label_quantiles(values: pd.Series) -> pd.Series:
+    """Kept for ML severity-score quantile split (not for formula labels)."""
     if values is None or len(values) == 0:
         return pd.Series([], dtype=str)
-
     if values.nunique(dropna=True) <= 1:
         return pd.Series(["moderate"] * len(values), index=values.index)
-
     q1 = values.quantile(0.25)
     q2 = values.quantile(0.50)
     q3 = values.quantile(0.75)
@@ -41,20 +51,11 @@ def get_risk(year: int = Query(2025), db: Session = Depends(get_db)):
     model = bundle["model"]
     feature_cols = bundle["feature_cols"]
 
-    # Total crimes citywide for normalization
-    total_city_crimes = (
-        db.query(CrimeMonthlyCount.crime_count)
-        .filter(CrimeMonthlyCount.year == year)
-        .all()
-    )
-    total_city_crimes = sum(x[0] for x in total_city_crimes) or 1
-
     classifications = db.query(CrimeClassification).all()
     weight_map = {c.id: c.weight for c in classifications}
 
     neighborhoods = db.query(Neighborhood).all()
 
-    # First pass: compute formula r1/r2/r and build ML feature rows
     temp = []
     feature_rows = []
     for n in neighborhoods:
@@ -71,10 +72,8 @@ def get_risk(year: int = Query(2025), db: Session = Depends(get_db)):
         crime_by_class = {}
         for r in rows:
             w = weight_map.get(r.classification_id, 1)
-            weighted_sum += (r.crime_count * w)
+            weighted_sum += r.crime_count * w
             crime_by_class[r.classification_id] = crime_by_class.get(r.classification_id, 0) + r.crime_count
-
-        r1 = (weighted_sum / total_city_crimes) * 20.0
 
         demo_avg = (
             n.population_density_score
@@ -86,14 +85,12 @@ def get_risk(year: int = Query(2025), db: Session = Depends(get_db)):
             + n.vitality_score
         ) / 7.0
         r2 = demo_avg * 20.0
-        r_final = (r1 + r2) / 2.0
 
         temp.append({
             "n": n,
-            "r1": r1,
+            "weighted_sum": weighted_sum,
             "r2": r2,
-            "r": r_final,
-            "crime_by_class": crime_by_class
+            "crime_by_class": crime_by_class,
         })
 
         row = {
@@ -109,11 +106,16 @@ def get_risk(year: int = Query(2025), db: Session = Depends(get_db)):
             row[f"crime_c{cid}"] = int(crime_by_class.get(cid, 0))
         feature_rows.append(row)
 
-    # Formula labels based on R quantiles (like before)
-    r_series = pd.Series([x["r"] for x in temp])
-    formula_labels = label_quantiles(r_series)
+    # ── R1: normalize against the neighborhood with the max weighted crimes
+    max_ws = max((x["weighted_sum"] for x in temp), default=1) or 1
+    for x in temp:
+        x["r1"] = (x["weighted_sum"] / max_ws) * 100.0
+        x["r"] = (x["r1"] + x["r2"]) / 2.0
 
-    # ML: use predict_proba -> severity score -> quantile labels (prevents collapse)
+    # ── Formula label: fixed thresholds
+    formula_labels = [label_by_threshold(x["r"]) for x in temp]
+
+    # ── ML predictions
     X = pd.DataFrame(feature_rows)
     for col in feature_cols:
         if col not in X.columns:
@@ -139,16 +141,13 @@ def get_risk(year: int = Query(2025), db: Session = Depends(get_db)):
             sum(float(pmap.get(k, 0.0)) * v for k, v in severity_index.items())
             for pmap in prob_maps
         ])
-
         predicted_labels = label_quantiles(severity_scores).tolist()
-
     else:
         preds = model.predict(X)
         predicted_labels = [str(p) for p in preds]
         confidences = [None] * len(predicted_labels)
         prob_maps = [None] * len(predicted_labels)
 
-    # Output
     out = []
     for idx, x in enumerate(temp):
         n = x["n"]
@@ -157,15 +156,22 @@ def get_risk(year: int = Query(2025), db: Session = Depends(get_db)):
             "name": n.name,
             "lat": float(n.latitude),
             "lng": float(n.longitude),
-
             "r1": round(x["r1"], 2),
             "r2": round(x["r2"], 2),
-            "r": round(x["r"], 2),
-            "formula_label": str(formula_labels.iloc[idx]),
-
+            "r":  round(x["r"],  2),
+            "formula_label": formula_labels[idx],
             "predicted_label": predicted_labels[idx],
             "confidence": confidences[idx],
             "probabilities": prob_maps[idx],
+            "scores": {
+                "population_density":    n.population_density_score,
+                "divorce_ratio":         n.divorce_ratio_score,
+                "unmarried_over_30":     n.unmarried_over_30_score,
+                "university_education":  n.university_education_score,
+                "unemployment":          n.unemployment_score,
+                "income":                n.income_score,
+                "vitality":              n.vitality_score,
+            },
         })
 
     return out
